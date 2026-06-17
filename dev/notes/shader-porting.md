@@ -149,8 +149,8 @@ Texel 2: (noise_multiplier, _unused, _unused, _unused)
 Texel 3+: (reserved untuk channel noise — detail menyusul)
 ```
 
-Nanti akan diperluas saat shader ditulis. Gunakan `textureLod` dengan
-`float(texelIndex) + 0.5) / textureSize(params, 0).x` untuk akses per texel.
+Akses per texel: `texture(paramsTexture, vec2((float(texelIndex) + 0.5) / 8.0, 0.5))`.
+`texelFetch` tidak bisa dipakai karena qsb --qt6 target GLSL ES 1.00.
 
 ### Time Texture
 
@@ -160,6 +160,115 @@ R = elapsed_time (second)
 G = timestep (delta time)
 B/A = _unused
 ```
+
+## Shader Helper Pattern
+
+Setiap shader GLSL membutuhkan helper function yang konsisten untuk
+membaca params texture dan time texture. Karena `#include` tidak reliable
+di Qt qsb/GLSL ES, helper berikut di-copy ke setiap file `.frag`.
+
+```glsl
+// === GLSL version & layout qualifiers ===
+// HARUS #version 420 karena layout(binding=N) untuk sampler tidak
+// support di version < 420. qsb --qt6 akan cross-compile ke GLSL 120/150
+// otomatis tanpa masalah.
+#version 420
+
+layout(binding = 0) uniform sampler2D velocityTexture;
+layout(binding = 8) uniform sampler2D paramsTexture;   // 8x1 RGBA8 — parameter simulasi
+layout(binding = 9) uniform sampler2D timeTexture;     // 1x1 RGBA8 — waktu (IEEE 754 float32)
+
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+
+// Decode IEEE 754 float32 dari vec4 RGBA8 (4 byte)
+float decodeFloat(vec4 v) {
+    uvec4 b = uvec4(v * 255.0 + 0.5);
+    uint bits = (b.r << 24u) | (b.g << 16u) | (b.b << 8u) | b.a;
+    return uintBitsToFloat(bits);
+}
+
+// Decode normalized param dari texel index dengan range [minVal, maxVal]
+float readNormParam(int texelIndex, int channel, float minVal, float maxVal) {
+    vec2 uv = vec2((float(texelIndex) + 0.5) / 8.0, 0.5);
+    vec4 p = texture(paramsTexture, uv);
+    float norm = channel == 0 ? p.r : channel == 1 ? p.g : channel == 2 ? p.b : p.a;
+    return minVal + norm * (maxVal - minVal);
+}
+
+vec2 getResolution() {
+    vec4 p0 = texture(paramsTexture, vec2(0.5 / 8.0, 0.5));
+    return p0.rg * 1024.0;
+}
+
+float getTimestep() {
+    return readNormParam(1, 0, 0.001, 0.1);
+}
+
+float getDissipation() {
+    return readNormParam(1, 1, 0.0, 5.0);
+}
+
+float getCenterFactor() {
+    return readNormParam(2, 0, 0.0, 10.0);
+}
+
+float getStencilFactor() {
+    return readNormParam(2, 1, 0.0, 1.0);
+}
+
+float getITime() {
+    return decodeFloat(texture(timeTexture, vec2(0.5)));
+}
+```
+
+### Layout Params Texture (Updated)
+
+| Texel | UV (center) | Channel | Parameter | Range |
+|-------|------------|---------|-----------|-------|
+| 0 | 0.5/8.0 | RG | resolution / 1024 | 0..1 |
+| 0 | 0.5/8.0 | BA | _unused | — |
+| 1 | 1.5/8.0 | R | timestep (norm) | [0.001, 0.1] |
+| 1 | 1.5/8.0 | G | dissipation (norm) | [0.0, 5.0] |
+| 1 | 1.5/8.0 | BA | _unused | — |
+| 2 | 2.5/8.0 | R | center_factor (norm) | [0.0, 10.0] |
+| 2 | 2.5/8.0 | G | stencil_factor (norm) | [0.0, 1.0] |
+| 2 | 2.5/8.0 | BA | _unused | — |
+| 3-7 | — | — | reserved (noise channels, dll) | — |
+
+## Runtime Verification — Phase 1
+
+### Date
+2025-06-17
+
+### Shaders Tested
+- `shaders/src/divergence.frag` → `compiled/divergence.qsb` ✅
+- `shaders/src/pressure.frag` → `compiled/pressure.qsb` ✅
+- `shaders/src/subtract_gradient.frag` → `compiled/subtract_gradient.qsb` ✅
+- `shaders/src/init_velocity.frag` → `compiled/init_velocity.qsb` ✅
+
+### Test Method
+Sandbox Qt Quick app di `dev/shader-sandbox/`:
+1. Inisialisasi velocity field (divergent flow: `v = (uv - 0.5) * 2.0`, bias-encoded)
+2. Divergence pass → output divergence texture
+3. Pressure pass (single Jacobi iteration, pressure dimulai dari 0) → output pressure
+4. Subtract gradient pass → output corrected velocity (ditampilkan di layar)
+
+### Results
+| Check | Status | Notes |
+|-------|--------|-------|
+| App load tanpa crash | ✅ | Timeout exit (124) setelah 2 detik |
+| Shader error di terminal | ✅ | Zero — semua .qsb ter-compile dan ter-load |
+| Binding correct | ✅ | qt_TexCoord0 + layout(location) pattern work |
+| paramsTexture readable | ✅ | getResolution() memberikan nilai yang benar |
+| timeTexture readable | ✅ | decodeFloat pattern work (dari FrameAnimation) |
+
+### Key Learnings
+1. `#version 150` doesn't support `layout(binding=N)` for samplers. Use `#version 420`.
+2. `--qt6` flag is correct for output. The SOURCE GLSL version can be higher.
+3. All inputs/outputs need explicit `layout(location=N)` — including `qt_TexCoord0`.
+4. `texelFetch()` rejected by GLSL ES 1.00 target — use `texture()` with centered UV.
+5. qsb will correctly cross-compile `#version 420` source to GLSL 120/150 targets.
 
 ## Key Differences in Approach
 
