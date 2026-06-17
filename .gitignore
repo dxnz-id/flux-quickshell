@@ -1,0 +1,13 @@
+# Build artifacts
+dev/shader-sandbox/build/
+build/
+
+# Eksperimen lokal, tidak di-commit
+dev/scratch/
+
+# Qt Creator / IDE
+*.user
+.qtcreator/
+
+# OS
+.DS_Store
