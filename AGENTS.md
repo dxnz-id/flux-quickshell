@@ -5,6 +5,30 @@ Baca seluruh dokumen sebelum mengerjakan task apapun.
 
 ---
 
+## CRITICAL: 1 Sampler per ShaderEffect — HARD LIMIT
+
+**Setiap ShaderEffect HANYA boleh punya SATU `layout(binding=0) uniform sampler2D`. Tidak ada exception.**
+
+### Terverifikasi
+- 2 sampler terpisah (binding 0 + binding 1) → binding 1+ membaca texture yang SALAH. Diverifikasi dengan swap test di sandbox.
+- Ini bukan limitasi channel capacity (RGBA masih 4 channel penuh tersedia), tapi limitasi JUMLAH sampler2D uniform.
+- Efek terjadi dengan tepat 2 sampler (bukan hanya 3+).
+
+### Implikasi Desain
+Setiap shader yang butuh data dari >1 sumber HARUS:
+1. Pack semua data yang diperlukan ke channel RGBA dari 1 texture (lewat prep-pass jika perlu), ATAU
+2. Pecah jadi multi-pass sequential, masing-masing pass baca 1 texture saja
+
+### Pattern yang Terverifikasi Jalan
+- **Self-sampling dengan UV offset**: 1 sampler, dipanggil berkali-kali dengan UV berbeda untuk baca neighbor (kiri/kanan/atas/bawah). Dipakai di pressure.frag, subtract_gradient.frag, diffuse.frag.
+- **1×1 ShaderEffectSource untuk scalar value** (misal time): Rectangle 1×1 dengan `color: Qt.rgba(t,t,t,1)`, di-capture via ShaderEffectSource, dibaca sebagai sampler. Terverifikasi PASS untuk passing dynamic value tanpa uniform.
+- **Channel packing**: simpan beberapa scalar/vector berbeda di channel RGBA berbeda dari TEXTURE YANG SAMA (misal RG=velocity, B=pressure, A=1.0).
+
+### Yang TIDAK Bisa Dilakukan
+- ShaderEffect dengan `property var texA` + `property var texB`, lalu shader declare `layout(binding=0) uniform sampler2D texA;` dan `layout(binding=1) uniform sampler2D texB;` — binding 1 akan membaca texture yang salah.
+
+---
+
 ## Apa Ini
 
 Fluid simulation screensaver untuk lockscreen Hyprland, terinspirasi
@@ -99,14 +123,15 @@ di source Quickshell aktual sebelum implementasi — JANGAN asumsikan
 Urutan render pass per frame:
 
 ```
-inject_noise (Simplex procedural, 1 pass — tanpa noise texture terpisah)
-      → advect (forward only, semi-Lagrangian — MacCormack di-skip)
-      → diffuse ×3 (Jacobi)
-      → divergence
-      → pressure ×N (Jacobi, mulai N=4, target N=19)
-      → subtract_gradient
-      → (swap velocity ping-pong untuk frame berikutnya)
+noise (velocity-based Z, self-evolving Simplex 3D)
+  → advect (forward semi-Lagrangian, MacCormack di-skip)
+  → diffuse ×3 (Jacobi, VISCOSITY=5, TIMESTEP=1)
+  → divergence + pressure ×8 (Jacobi, Neuman BC dp/dn=0)
+  → subtract_gradient (no-slip BC)
+  → output → feedback ke noise input (frame berikutnya)
 ```
+
+Timer-driven loop (16ms interval, alternating ShaderEffectSource references).
 
 Detail matematika dan parameter default harus didokumentasikan di
 `dev/notes/navier-stokes-ref.md` berdasarkan analisis WGSL di
@@ -154,35 +179,42 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Tulis shader: diffuse (Jacobi iteration, 3 chain, verified convergent)
 - [x] Tulis shader: noise (3D Simplex procedural + inject, auto-correlation verified)
 - [x] Verified: 1×1 ShaderEffectSource via Rectangle bisa jadi single sampler pattern untuk passing time dinamis
+- [x] Verified: `layout(location=N) uniform float` dan `uniform vec4 color` — KEDUANYA ditolak qsb --qt6 (Vulkan SPIR-V melarang bare uniforms)
+- [x] FluxSimulation.qml — reusable Qt Quick component with full pipeline:
+  noise → advect → diffuse×3 → pressure×8 → subtract_gradient → feedback loop
+- [x] Dynamic noise via velocity-based Z coordinate (length(vel) * 10.0 + zOffset) — verified self-evolving
+- [x] Timer-driven ping-pong (2 ShaderEffectSources, alternating simTex) for continuous re-render, verified ~60fps
+- [x] visualize.frag — velocity magnitude heat map (blue→cyan→green→yellow→red)
+- [x] Stability test 10s: mean stable ~83, continuous frame-to-frame diff ~35, no blow-up
+- [x] 90% bright pixels visualization with tuned color mapping
 
 ### Belum Dimulai
-- [ ] Verifikasi visual fluid simulation di sandbox (warna bergerak organik, tidak explode)
-- [ ] Verifikasi multi-iterasi pressure (19x) di pipeline penuh setelah advection+diffusion+noise selesai
+- [ ] Advanced pressure iterations (19x, verify convergence rate vs 8x)
 - [ ] Verifikasi Quickshell API: FrameAnimation, Singleton/QtObject pattern, GlobalShortcut/IpcHandler, SessionLockSurface — cek source aktual, jangan asumsi
-- [ ] `FluxBackground.qml` untuk komponen animasi
+- [ ] `FluxBackground.qml` untuk komponen fullscreen
 - [ ] `LockState` untuk state machine mode Normal/Flux
 - [ ] Line rendering (garis/partikel seperti Flux asli — vertex shader, hindari custom vertex shader Qt 6 jika segfault masih terjadi)
 - [ ] Integrasi ke dots-hyprfork lockscreen
+- [ ] Dynamic time via 1×1 Rectangle + prepass (velocity+time dalam 1 sampler)
 
 ### Known Issues
 
 - 2025-06-17: Diffuse dan pressure solver di flux-reference pakai **Jacobi iteration**
   (bukan Gauss-Seidel). Shader membaca neighbor dari input texture yang sama
-  dan menulis ke output texture terpisah. Ini harusnya dicatat di pipeline
-  description AGENTS.md agar tidak salah saat porting ke GLSL multi-pass.
-- 2025-06-17 (Terbaru): Multi-sampler ShaderEffect bug di Qt 6.11 — setiap
+  dan menulis ke output texture terpisah.
+- 2025-06-17: Multi-sampler ShaderEffect bug di Qt 6.11 — setiap
   ShaderEffect hanya boleh punya SATU `sampler2D`. Tambahan sampler (kedua,
-  ketiga) menyebabkan output flat tanpa error. Workaround: channel-packed
-  single-texture dengan A=1.0.
+  ketiga) menyebabkan output flat tanpa error.
 - 2025-06-17: `grabToImage()` intermittent di Wayland — kadang tidak
   menulis file saat stdout/stderr di-redirect ke /dev/null.
-- 2025-06-17 (Terbaru): Multi-sampler ShaderEffect bug di Qt 6.11 — setiap
-  ShaderEffect hanya boleh punya SATU `sampler2D`. Tambahan sampler (kedua,
-  ketiga) menyebabkan output flat tanpa error. Workaround: channel-packed
-  single-texture dengan A=1.0.
-- 2025-06-17 (Terbaru): 1 Jacobi pressure iteration menghasilkan ∇p ≈ 0 di
-  interior (numpy verified). Ini matematis benar, bukan bug. Jumlah iterasi
-  final (≥4, target 19) akan ditest saat pipeline penuh.
+- 2025-06-17: 1 Jacobi pressure iteration menghasilkan ∇p ≈ 0 di
+  interior (numpy verified). Ini matematis benar, bukan bug.
+- 2025-06-18: Bare uniforms (`uniform float`, `uniform vec4 color`) ditolak qsb --qt6
+  karena kompilasi melalui SPIR-V (Vulkan GLSL melarang bare uniforms).
+- 2025-06-18: Velocity-based Z noise dapat menyebabkan limit cycle (frekuensi stabil).
+  Mitigasi: offset berbeda per channel + spatial coupling via advection.
+- 2025-06-18: 8 pressure iterations hardcoded di FluxSimulation.qml (bukan parameter).
+  `pressIterations` property dideklarasikan tapi tidak mempengaruhi count.
 
 ---
 
@@ -392,6 +424,39 @@ Flux reference pakai **19 iterasi** untuk hasil convergen.
 **Implikasi**: Test pipeline penuh (setelah advection+diffusion+noise) HARUS
 menggunakan ≥4 iterasi pressure, target 19 iterasi. 1 iterasi cukup untuk
 verifikasi data flow, tidak cukup untuk visual effect.
+
+### Velocity-Based Noise (Self-Evolving)
+
+Untuk mengatasi limitasi passing time dinamis ke shader (tanpa uniform, tanpa
+2 sampler), noise.frag menggunakan **Z coordinate = `length(vel) * 10.0 + zOffset`**
+sebagai sumbu waktu untuk 3D Simplex noise. Hasil:
+
+- Noise pattern berubah saat velocity berubah (setiap frame karena advection)
+- Tidak perlu external time input (self-evolving)
+- Auto-correlation ~0.95 (smooth spatial structure, bukan per-pixel noise)
+- Fluida terus berevolusi tanpa settle ke steady state (verified: diff ~35 antar
+  frame setelah 5s)
+- Parameter: 3 octaves (scale 2.8/15/30, multiplier 1.0/0.7/0.5, zOffset 0/50)
+
+### Timer-Driven Ping-Pong Rendering
+
+Continuous re-render dicapai dengan timer 16ms (≈60fps) dan 2
+ShaderEffectSource yang capture dari passSubtract yang sama:
+
+```qml
+property bool _pingA: true
+Timer {
+    interval: 16; running: root.running; repeat: true
+    onTriggered: {
+        passNoise.simTex = root._pingA ? srcFinalA : srcFinalB
+        root._pingA = !root._pingA
+    }
+}
+```
+
+Alternating reference objects memastikan property change signal setiap frame,
+yang memicu re-render chain. Tanpa ini, chain render sekali dan berhenti
+karena tidak ada dependency circular yang terdeteksi Qt scene graph.
 
 ---
 

@@ -12,4 +12,5 @@ target_link_libraries(shader_sandbox PRIVATE Qt6::Quick Qt6::Qml)
 
 # Copy QML + shaders to build directory at configure time
 file(COPY ${CMAKE_SOURCE_DIR}/main.qml DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/../../qml/ DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${CMAKE_SOURCE_DIR}/../../shaders/compiled/ DESTINATION ${CMAKE_BINARY_DIR}/shaders)

@@ -7,8 +7,7 @@ layout(location = 0) out vec4 fragColor;
 
 const float RES = 128.0;
 const float TIMESTEP = 1.0;
-const float TIME = 1.0;
-const float GLOBAL_MULT = 0.45;
+const float GLOBAL_MULT = 0.6;
 
 const vec2 SCALE0 = vec2(2.8, 2.8);
 const vec2 SCALE1 = vec2(15.0, 15.0);
@@ -16,9 +15,6 @@ const vec2 SCALE2 = vec2(30.0, 30.0);
 const float MULT0 = 1.0;
 const float MULT1 = 0.7;
 const float MULT2 = 0.5;
-const float SPEED0 = 0.001;
-const float SPEED1 = 0.006;
-const float SPEED2 = 0.012;
 
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -68,8 +64,9 @@ float snoise(vec3 v) {
     return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
 
-float channelNoise(vec2 uv, float scale, float speed, float zOffset) {
-    return snoise(vec3(uv * scale, TIME * speed + zOffset));
+float channelNoise(vec2 uv, float scale, vec2 vel, float zOffset) {
+    float z = length(vel) * 10.0 + zOffset;
+    return snoise(vec3(uv * scale, z));
 }
 
 void main() {
@@ -80,12 +77,12 @@ void main() {
 
     vec2 n = vec2(0.0);
     float zOff = 50.0;
-    n.x += MULT0 * channelNoise(uv, SCALE0.x, SPEED0, 0.0);
-    n.y += MULT0 * channelNoise(uv, SCALE0.y, SPEED0, zOff);
-    n.x += MULT1 * channelNoise(uv, SCALE1.x, SPEED1, 0.0);
-    n.y += MULT1 * channelNoise(uv, SCALE1.y, SPEED1, zOff);
-    n.x += MULT2 * channelNoise(uv, SCALE2.x, SPEED2, 0.0);
-    n.y += MULT2 * channelNoise(uv, SCALE2.y, SPEED2, zOff);
+    n.x += MULT0 * channelNoise(uv, SCALE0.x, v, 0.0);
+    n.y += MULT0 * channelNoise(uv, SCALE0.y, v, zOff);
+    n.x += MULT1 * channelNoise(uv, SCALE1.x, v, 0.0);
+    n.y += MULT1 * channelNoise(uv, SCALE1.y, v, zOff);
+    n.x += MULT2 * channelNoise(uv, SCALE2.x, v, 0.0);
+    n.y += MULT2 * channelNoise(uv, SCALE2.y, v, zOff);
 
     n *= GLOBAL_MULT;
 
