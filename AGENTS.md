@@ -102,7 +102,7 @@ Urutan render pass per frame:
 noise → advect (forward → reverse → adjust, MacCormack)
       → diffuse ×3 (Gauss-Seidel)
       → divergence
-      → pressure ×N (Jacobi atau Red-Black Gauss-Seidel, mulai N=4, target N=19)
+      → pressure ×N (Jacobi, mulai N=4, target N=19 — lihat catatan tentang 1 iterasi di Critical Discoveries)
       → subtract_gradient
       → (swap velocity ping-pong untuk frame berikutnya)
 ```
@@ -141,13 +141,18 @@ Detail matematika dan parameter default harus didokumentasikan di
   - Premultiplied alpha storage in layers
   - qsb --qt6 rejects bare uniforms
 - [x] Working channel-packed pipeline (single texture, A=1.0, hardcoded RES)
-- [x] Verified: init → divergence+pressure → subtract_gradient (3 passes, correct values)
+- [x] Verified: init → divergence+pressure → subtract_gradient (3 passes, correct values via numpy diff)
+- [x] Fix display: `Image { source: ShaderEffectSource }` tidak bisa render live ShaderEffectSource di Qt 6.11 — ganti dengan `ShaderEffect` passthrough
+- [x] Verifikasi numeric bahwa 1 Jacobi iteration untuk pressure menghasilkan ∇p ≈ 0 di interior (matematis benar, secara visual tidak terlihat)
+- [x] Tulis shader passthrough (`shaders/src/passthrough.frag`) untuk display pipeline
+
 ### Belum Dimulai
 
 - [ ] Tulis shader: advect (forward, reverse, adjust)
 - [ ] Tulis shader: diffuse
 - [ ] Tulis shader: noise
 - [ ] Verifikasi visual fluid simulation di sandbox (warna bergerak organik, tidak explode)
+- [ ] Verifikasi multi-iterasi pressure (19x) di pipeline penuh setelah advection+diffusion+noise selesai
 - [ ] Verifikasi Quickshell API: FrameAnimation, Singleton/QtObject pattern, GlobalShortcut/IpcHandler, SessionLockSurface — cek source aktual, jangan asumsi
 - [ ] `FluxBackground.qml` untuk komponen animasi
 - [ ] `LockState` untuk state machine mode Normal/Flux
@@ -166,6 +171,9 @@ Detail matematika dan parameter default harus didokumentasikan di
   single-texture dengan A=1.0.
 - 2025-06-17: `grabToImage()` intermittent di Wayland — kadang tidak
   menulis file saat stdout/stderr di-redirect ke /dev/null.
+- 2025-06-17 (Terbaru): 1 Jacobi pressure iteration menghasilkan ∇p ≈ 0 di
+  interior (numpy verified). Ini matematis benar, bukan bug. Jumlah iterasi
+  final (≥4, target 19) akan ditest saat pipeline penuh.
 
 ---
 
@@ -272,6 +280,48 @@ Pipeline 3-pass untuk projection step:
 
 Divergence dihitung ON-THE-FLY dari velocity neighbors di setiap pass
 (lebih murah daripada iterasi terpisah dengan constraint channel terbatas).
+
+### Image { source: ShaderEffectSource } Tidak Bekerja di Qt 6.11
+
+`Image { source: srcInit }` tidak dapat menampilkan ShaderEffectSource yang
+`live: true; hideSource: true` — output hitam pekat tanpa error. **WORKAROUND**:
+Gunakan ShaderEffect passthrough sebagai display:
+
+```qml
+ShaderEffect {
+    width: simSize; height: simSize
+    property var simTex: srcInit
+    fragmentShader: "shaders/passthrough.qsb"
+}
+```
+
+Shader passthrough minimal (`shaders/src/passthrough.frag`):
+```glsl
+#version 420
+layout(binding = 0) uniform sampler2D simTex;
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+void main() { fragColor = texture(simTex, qt_TexCoord0); }
+```
+
+### 1 Pressure Jacobi Iterasi: ∇p ≈ 0 di Interior
+
+Pipeline 3-pass (init → divergence+pressure → subtract_gradient) dengan
+1 Jacobi iteration untuk pressure menghasilkan:
+
+- **Velocity change hanya di boundary** (no-slip BC via subtract_gradient,
+  misal x=0: -0.992 → +0.004)
+- **Pressure field**: seragam awal 0.004, setelah iterasi jadi bervariasi
+  `[-0.004, 0.004]` — tapi hampir konstan karena neighbor pressure=0 di mana-mana
+- **Interior velocity tidak berubah**: `p ≈ -0.25 * div` (konstan) → `∇p ≈ 0`
+
+Ini MATEMATIS BENAR untuk 1 iterasi dengan initial pressure=0. Pressure
+information butuh beberapa iterasi untuk propagate dari boundary ke interior.
+Flux reference pakai **19 iterasi** untuk hasil convergen.
+
+**Implikasi**: Test pipeline penuh (setelah advection+diffusion+noise) HARUS
+menggunakan ≥4 iterasi pressure, target 19 iterasi. 1 iterasi cukup untuk
+verifikasi data flow, tidak cukup untuk visual effect.
 
 ---
 

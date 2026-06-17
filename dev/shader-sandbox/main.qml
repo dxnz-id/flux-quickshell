@@ -56,21 +56,33 @@ Window {
         live: true; hideSource: true
     }
 
-    // ── Display ──
+    // ── Display (passthrough ShaderEffect, bukan Image) ──
     Row {
         anchors.centerIn: parent
         spacing: 8
         Column {
             Text { color: "white"; text: "Initial Velocity (RG)"; font.pixelSize: 11 }
-            Image { source: srcInit; width: simSize; height: simSize }
+            ShaderEffect {
+                width: simSize; height: simSize
+                property var simTex: srcInit
+                fragmentShader: "shaders/passthrough.qsb"
+            }
         }
         Column {
             Text { color: "white"; text: "After ∇· + ∇p (RG)"; font.pixelSize: 11 }
-            Image { source: srcPressure; width: simSize; height: simSize }
+            ShaderEffect {
+                width: simSize; height: simSize
+                property var simTex: srcPressure
+                fragmentShader: "shaders/passthrough.qsb"
+            }
         }
         Column {
             Text { color: "white"; text: "Vel - ∇P (RG)"; font.pixelSize: 11 }
-            Image { source: srcSubtract; width: simSize; height: simSize }
+            ShaderEffect {
+                width: simSize; height: simSize
+                property var simTex: srcSubtract
+                fragmentShader: "shaders/passthrough.qsb"
+            }
         }
     }
 
