@@ -25,11 +25,73 @@ Mesa Intel.
 
 ### Constraint Lain yang Sudah Diverifikasi
 - **Custom vertex shader** → segfault di Qt 6.11. Jangan dipakai.
-- **Uniform block** (`layout(std140, binding=N) uniform`) → QML property tidak
-  bisa di-mapping ke member-nya. Gunakan params texture (Canvas → sampler2D).
 - **ShaderEffectSource format RGBA8** → clamp nilai negatif ke 0. Semua shader
   yang output velocity/pressure/noise harus bias encode: `v*0.5+0.5` saat
   output, `v*2.0-1.0` saat dibaca kembali.
+
+### Uniform Passing — Dua Masalah Berbeda
+
+Ada dua masalah TERPISAH yang sering tertukar. Pahami bedanya:
+
+#### 1. Bare Uniform — COMPILE-TIME REJECTION
+
+```glsl
+#version 420
+uniform float uTime;            // ❌ Ditulis di GLSL source
+```
+
+**qsb --qt6** pertama-tama kompilasi source ke SPIR-V (untuk Vulkan RHI).
+Vulkan GLSL **melarang** `uniform` untuk non-opaque types di global scope.
+Error saat kompilasi:
+
+```
+ERROR: 'non-opaque uniforms outside a block' : not allowed when using GLSL for Vulkan
+```
+
+**Verdict**: GAGAL TOTAL. Tidak ada kompromi. Gunakan pendekatan non-uniform
+(1×1 texture, channel packing, atau hardcoded constants).
+
+#### 2. Uniform Block — RUNTIME MAPPING FAILURE
+
+```glsl
+#version 420
+layout(std140, binding = 1) uniform Params {
+    float uTime;
+};
+```
+
+**qsb --qt6** berhasil compile ke SPIR-V dan cross-compile ke target backend.
+ShaderEffect bisa di-load tanpa error.
+
+Tapi QML tidak bisa mapping property ke member UBO:
+
+```qml
+// Property ini TIDAK akan masuk ke Params.uTime:
+ShaderEffect {
+    property real uTime: 0.5
+}
+```
+
+Qt RHI tidak memiliki mekanisme untuk meng-update uniform block members
+dari QML properties secara dinamis. Hasil: shader jalan, nilai uTime tetap
+default (0.0 atau undefined).
+
+**Verdict**: COMPILE SUKSES, RUNTIME GAGAL (silent — shader tetap render,
+tapi nilai uniform salah).
+
+#### Ringkasan
+
+| Jenis | qsb --qt6 | Runtime Mapping | Deteksi Error |
+|---|---|---|---|
+| `uniform float uTime;` (bare) | REJECTED | — | Error jelas saat compile |
+| `layout(std140) uniform Params { float u; };` (block) | OK | FAIL (silent) | Tidak ada error — output salah tanpa pemberitahuan |
+
+**Implikasi**: Kedua pendekatan uniform tidak bisa dipakai untuk passing
+parameter ke ShaderEffect. Satu-satunya cara yang berfungsi adalah:
+1. **Sampler2D** (melalui QML `property var` → binding layout)
+2. **1×1 Rectangle + ShaderEffectSource** (untuk scalar/vector values)
+3. **Encoding data ke channel RGBA texture yang sudah ada** (channel packing)
+4. **Hardcoded constants** di GLSL source
 
 ## Mapping Tipe Data WGSL → GLSL
 

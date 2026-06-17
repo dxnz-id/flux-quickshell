@@ -207,6 +207,41 @@ Neumann boundary: `dp/dn = 0` di tepi grid. Implementasi: di boundary,
 nilai neighbor yang keluar grid disalin dari nilai pressure cell itu sendiri
 (bukan dari clamp-to-edge sampler saja — ada manual check tambahan).
 
+### Perbedaan Implementasi GLSL
+
+Pipeline kami (**flux-quickshell**) berbeda dari flux-reference pada aspek berikut:
+
+| Aspek | flux-reference (WGSL) | flux-quickshell (GLSL) |
+|-------|----------------------|----------------------|
+| **Compute/shader type** | Compute shader (WGSL) | Fragment shader (GLSL via ShaderEffect) |
+| **Texture format** | RGBA16Float / R32Float | RGBA8 (bias-encode) |
+| **Divergence storage** | Divergence texture terpisah (R32Float) | Dihitung ON-THE-FLY dari velocity neighbors setiap iterasi |
+| **Pressure iterations** | 19 Jacobi, divergence + pressure terpisah | 19 Jacobi, divergence dihitung ulang tiap iterasi dalam shader yang sama |
+| **Pressure format** | R32Float terpisah | B channel dari RGBA8 (multiplexed dengan velocity di RG) |
+| **MacCormack advection** | Forward + reverse + adjust | Skip (forward-only) |
+
+Divergence on-the-fly adalah trade-off dari **1-sampler limit** (lihat AGENTS.md):
+setiap iterasi pressure tidak bisa membaca divergence texture + pressure texture
+dari 2 sampler terpisah. Solusi: hitung divergence dari velocity neighbors
+setiap iterasi (komputasi ekstra minimal karena biaya texture fetch mendominasi).
+
+### Verifikasi Numerik (19 vs 8 Pressure Iterations)
+
+Diuji dengan sandbox Qt 128×128, pipeline penuh (noise → advect → diff×3 → press×N → subtract):
+
+| Metric | 8 iterasi | 19 iterasi | Catatan |
+|--------|-----------|------------|---------|
+| Mean velocity (visualize) | ~97-99 | ~99 | Noise injection menentukan energi |
+| Std velocity | ~78 | ~72 | Slightly less variance (lebih div-free) |
+| Max velocity | 255 (saturated) | 229 | Lebih sedikit saturasi boundary |
+| Frame-to-frame diff (3s→5s) | ~34 | ~27 | Flow lebih smooth temporal |
+| FPS | ~60 | ~60 | Tidak ada penurunan (128×128 = beban GPU kecil) |
+| Visual boundary artifacts | Minor | Near-zero | Pressure solve lebih convergen |
+
+**Kesimpulan**: 19 iterasi memberikan boundary yang lebih div-free tanpa
+penalti performa. Perbedaan interior subtle — keduanya sudah cukup baik
+untuk screensaver.
+
 ### 5. Subtract Gradient (`subtract_gradient.comp.wgsl`)
 
 ```

@@ -126,7 +126,7 @@ Urutan render pass per frame:
 noise (velocity-based Z, self-evolving Simplex 3D)
   → advect (forward semi-Lagrangian, MacCormack di-skip)
   → diffuse ×3 (Jacobi, VISCOSITY=5, TIMESTEP=1)
-  → divergence + pressure ×8 (Jacobi, Neuman BC dp/dn=0)
+  → divergence + pressure ×19 (Jacobi, Neumann BC dp/dn=0)
   → subtract_gradient (no-slip BC)
   → output → feedback ke noise input (frame berikutnya)
 ```
@@ -174,22 +174,23 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Tulis shader: advect_forward (semi-Lagrangian, forward-only)
 - [x] Verifikasi advect_forward di sandbox (pixel values berubah, range tereduksi)
 - [x] Dokumentasi keputusan skip MacCormack (limitasi 1 sampler, 6 values > 4 channels)
-
 - [x] Verifikasi pipeline multi-pass di sandbox (7 pass chain: init → ∇·+p → ∇-p → advect → diffuse×3 → noise)
 - [x] Tulis shader: diffuse (Jacobi iteration, 3 chain, verified convergent)
 - [x] Tulis shader: noise (3D Simplex procedural + inject, auto-correlation verified)
 - [x] Verified: 1×1 ShaderEffectSource via Rectangle bisa jadi single sampler pattern untuk passing time dinamis
 - [x] Verified: `layout(location=N) uniform float` dan `uniform vec4 color` — KEDUANYA ditolak qsb --qt6 (Vulkan SPIR-V melarang bare uniforms)
 - [x] FluxSimulation.qml — reusable Qt Quick component with full pipeline:
-  noise → advect → diffuse×3 → pressure×8 → subtract_gradient → feedback loop
+  noise → advect → diffuse×3 → pressure×19 → subtract_gradient → feedback loop
 - [x] Dynamic noise via velocity-based Z coordinate (length(vel) * 10.0 + zOffset) — verified self-evolving
 - [x] Timer-driven ping-pong (2 ShaderEffectSources, alternating simTex) for continuous re-render, verified ~60fps
 - [x] visualize.frag — velocity magnitude heat map (blue→cyan→green→yellow→red)
 - [x] Stability test 10s: mean stable ~83, continuous frame-to-frame diff ~35, no blow-up
 - [x] 90% bright pixels visualization with tuned color mapping
+- [x] FluxSimulation.qml pressure chain extended to 19 iterations (matching flux-reference default)
+- [x] Verified 19 iterations vs 8: max velocity 229 vs 255 (better divergence-free), same FPS ~60, mean stable ~99, std ~72
+- [x] frameCount property exposed for external FPS measurement
 
 ### Belum Dimulai
-- [ ] Advanced pressure iterations (19x, verify convergence rate vs 8x)
 - [ ] Verifikasi Quickshell API: FrameAnimation, Singleton/QtObject pattern, GlobalShortcut/IpcHandler, SessionLockSurface — cek source aktual, jangan asumsi
 - [ ] `FluxBackground.qml` untuk komponen fullscreen
 - [ ] `LockState` untuk state machine mode Normal/Flux
@@ -213,8 +214,8 @@ Detail matematika dan parameter default harus didokumentasikan di
   karena kompilasi melalui SPIR-V (Vulkan GLSL melarang bare uniforms).
 - 2025-06-18: Velocity-based Z noise dapat menyebabkan limit cycle (frekuensi stabil).
   Mitigasi: offset berbeda per channel + spatial coupling via advection.
-- 2025-06-18: 8 pressure iterations hardcoded di FluxSimulation.qml (bukan parameter).
-  `pressIterations` property dideklarasikan tapi tidak mempengaruhi count.
+- 2025-06-18: FluxSimulation.qml pressure chain = 19 iterations (bukan parameter dinamis).
+  Untuk ubah jumlah iterasi: tambah/kurang instance ShaderEffect + ShaderEffectSource di chain.
 
 ---
 
@@ -325,15 +326,17 @@ Dengan constraint di atas, layout texture 128×128 RGBA8 yang WORKING:
 - **B**: pressure atau divergence (bias-encoded scalar, multiplexed)
 - **A**: 1.0 (alpha, tidak untuk data)
 
-Pipeline 3-pass untuk projection step:
-1. `init_velocity` — RG=velocity, B=0 (pressure), A=1.0
-2. `divergence+pressure` — hitung divergence dari velocity neighbors,
-   hitung pressure dari neighbors pressure + divergence, update B
-3. `subtract_gradient` — hitung gradien pressure, update velocity di RG
-   (pressure di B di-pass-through)
+Pipeline projection 3-pass (per iterasi):
+1. **Baca velocity dari RG, pressure dari B** (satu texture, 1 sampler)
+2. **Hitung divergence** dari velocity neighbors (central difference)
+3. **Hitung pressure** dari pressure neighbors + divergence (Jacobi: 0.25*(Σp - div))
+4. **Output** ke RGBA8: RG=velocity (pass-through), B=pressure_baru, A=1.0
+
+Chain: diff3 → press1(div+Jacobi) → press2(div+Jacobi) → ... → press19 → subtract_gradient
 
 Divergence dihitung ON-THE-FLY dari velocity neighbors di setiap pass
-(lebih murah daripada iterasi terpisah dengan constraint channel terbatas).
+(lebih murah daripada iterasi terpisah dengan constraint channel terbatas,
+karena biaya texture fetch dari 1 sampler mendominasi).
 
 ### 1×1 Rectangle untuk Dynamic Time Passing
 
