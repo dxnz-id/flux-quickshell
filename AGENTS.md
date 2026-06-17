@@ -131,11 +131,11 @@ Detail matematika dan parameter default harus didokumentasikan di
 
 ### Selesai
 
-- [ ] Setup struktur folder dan AGENTS.md
+- [x] Setup struktur folder dan AGENTS.md
 
 ### Sedang Dikerjakan
 
-- [ ] —
+- [ ] Verifikasi WGSL flux-reference + isi `dev/notes/`
 
 ### Belum Dimulai
 
