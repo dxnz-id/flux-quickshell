@@ -99,10 +99,11 @@ di source Quickshell aktual sebelum implementasi — JANGAN asumsikan
 Urutan render pass per frame:
 
 ```
-noise → advect (forward only, semi-Lagrangian — MacCormack di-skip karena limitasi 1 sampler)
-      → diffuse ×3 (Gauss-Seidel)
+inject_noise (Simplex procedural, 1 pass — tanpa noise texture terpisah)
+      → advect (forward only, semi-Lagrangian — MacCormack di-skip)
+      → diffuse ×3 (Jacobi)
       → divergence
-      → pressure ×N (Jacobi, mulai N=4, target N=19 — lihat catatan tentang 1 iterasi di Critical Discoveries)
+      → pressure ×N (Jacobi, mulai N=4, target N=19)
       → subtract_gradient
       → (swap velocity ping-pong untuk frame berikutnya)
 ```
@@ -149,10 +150,12 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Verifikasi advect_forward di sandbox (pixel values berubah, range tereduksi)
 - [x] Dokumentasi keputusan skip MacCormack (limitasi 1 sampler, 6 values > 4 channels)
 
-### Belum Dimulai
+- [x] Verifikasi pipeline multi-pass di sandbox (7 pass chain: init → ∇·+p → ∇-p → advect → diffuse×3 → noise)
+- [x] Tulis shader: diffuse (Jacobi iteration, 3 chain, verified convergent)
+- [x] Tulis shader: noise (3D Simplex procedural + inject, auto-correlation verified)
+- [x] Verified: 1×1 ShaderEffectSource via Rectangle bisa jadi single sampler pattern untuk passing time dinamis
 
-- [ ] Tulis shader: diffuse (Jacobi iteration, sesuai flux-reference)
-- [ ] Tulis shader: noise (3D Simplex)
+### Belum Dimulai
 - [ ] Verifikasi visual fluid simulation di sandbox (warna bergerak organik, tidak explode)
 - [ ] Verifikasi multi-iterasi pressure (19x) di pipeline penuh setelah advection+diffusion+noise selesai
 - [ ] Verifikasi Quickshell API: FrameAnimation, Singleton/QtObject pattern, GlobalShortcut/IpcHandler, SessionLockSurface — cek source aktual, jangan asumsi
@@ -299,6 +302,34 @@ Pipeline 3-pass untuk projection step:
 
 Divergence dihitung ON-THE-FLY dari velocity neighbors di setiap pass
 (lebih murah daripada iterasi terpisah dengan constraint channel terbatas).
+
+### 1×1 Rectangle untuk Dynamic Time Passing
+
+Dynamic time (iTime) bisa dipassing ke shader tanpa uniform melalui
+Rectangle 1×1 + ShaderEffectSource:
+
+```qml
+property real t: 0.0
+Timer { interval: 40; running: true; repeat: true;
+    onTriggered: { t = (t + 0.02) % 1.0; } }
+Rectangle {
+    id: timeRect; width: 1; height: 1; visible: false
+    color: Qt.rgba(t, t, t, 1.0)
+}
+ShaderEffectSource {
+    id: timeSource
+    sourceItem: timeRect; live: true; hideSource: true
+}
+```
+
+Shader membaca `timeTexture` yang merupakan 1×1 ShaderEffectSource.
+Karena Rectangle di-render oleh Qt Quick engine (bukan shader), warna
+bisa diubah via QML property t tanpa perlu uniform GLSL.
+
+**Constraint**: Untuk noise shader yang butuh velocity + time dalam
+1 sampler, perlu prep-pass: baca velocity texture, encode time ke B
+channel, output ke satu texture. Nanti di pipeline final dengan
+FrameAnimation Quickshell.
 
 ### Image { source: ShaderEffectSource } Tidak Bekerja di Qt 6.11
 
