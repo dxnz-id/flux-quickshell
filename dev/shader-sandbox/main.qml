@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Window
 
 Window {
-    width: 700; height: 350
+    width: 850; height: 350
     visible: true
     title: "Flux Pipeline — Single-Texture Channel-Packed"
     color: "black"
@@ -56,6 +56,22 @@ Window {
         live: true; hideSource: true
     }
 
+    // ── Pass 3: Forward Advection (semi-Lagrangian) ──
+    ShaderEffect {
+        id: passAdvect
+        x: -200; y: -200
+        width: simSize; height: simSize
+        visible: true; opacity: 0.999
+        layer.enabled: true
+        property var simTex: srcSubtract
+        fragmentShader: "shaders/advect_forward.qsb"
+    }
+    ShaderEffectSource {
+        id: srcAdvect
+        sourceItem: passAdvect
+        live: true; hideSource: true
+    }
+
     // ── Display (passthrough ShaderEffect, bukan Image) ──
     Row {
         anchors.centerIn: parent
@@ -84,6 +100,14 @@ Window {
                 fragmentShader: "shaders/passthrough.qsb"
             }
         }
+        Column {
+            Text { color: "white"; text: "Advected (RG)"; font.pixelSize: 11 }
+            ShaderEffect {
+                width: simSize; height: simSize
+                property var simTex: srcAdvect
+                fragmentShader: "shaders/passthrough.qsb"
+            }
+        }
     }
 
     Timer {
@@ -92,6 +116,7 @@ Window {
             passInit.grabToImage(function(r) { r.saveToFile("/tmp/flux_velocity_input.png"); });
             passPressure.grabToImage(function(r) { r.saveToFile("/tmp/flux_pressure.png"); });
             passSubtract.grabToImage(function(r) { r.saveToFile("/tmp/flux_final_output.png"); });
+            passAdvect.grabToImage(function(r) { r.saveToFile("/tmp/flux_advected.png"); });
         }
     }
 }

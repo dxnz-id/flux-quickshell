@@ -99,7 +99,7 @@ di source Quickshell aktual sebelum implementasi — JANGAN asumsikan
 Urutan render pass per frame:
 
 ```
-noise → advect (forward → reverse → adjust, MacCormack)
+noise → advect (forward only, semi-Lagrangian — MacCormack di-skip karena limitasi 1 sampler)
       → diffuse ×3 (Gauss-Seidel)
       → divergence
       → pressure ×N (Jacobi, mulai N=4, target N=19 — lihat catatan tentang 1 iterasi di Critical Discoveries)
@@ -145,12 +145,14 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Fix display: `Image { source: ShaderEffectSource }` tidak bisa render live ShaderEffectSource di Qt 6.11 — ganti dengan `ShaderEffect` passthrough
 - [x] Verifikasi numeric bahwa 1 Jacobi iteration untuk pressure menghasilkan ∇p ≈ 0 di interior (matematis benar, secara visual tidak terlihat)
 - [x] Tulis shader passthrough (`shaders/src/passthrough.frag`) untuk display pipeline
+- [x] Tulis shader: advect_forward (semi-Lagrangian, forward-only)
+- [x] Verifikasi advect_forward di sandbox (pixel values berubah, range tereduksi)
+- [x] Dokumentasi keputusan skip MacCormack (limitasi 1 sampler, 6 values > 4 channels)
 
 ### Belum Dimulai
 
-- [ ] Tulis shader: advect (forward, reverse, adjust)
-- [ ] Tulis shader: diffuse
-- [ ] Tulis shader: noise
+- [ ] Tulis shader: diffuse (Jacobi iteration, sesuai flux-reference)
+- [ ] Tulis shader: noise (3D Simplex)
 - [ ] Verifikasi visual fluid simulation di sandbox (warna bergerak organik, tidak explode)
 - [ ] Verifikasi multi-iterasi pressure (19x) di pipeline penuh setelah advection+diffusion+noise selesai
 - [ ] Verifikasi Quickshell API: FrameAnimation, Singleton/QtObject pattern, GlobalShortcut/IpcHandler, SessionLockSurface — cek source aktual, jangan asumsi
@@ -171,6 +173,10 @@ Detail matematika dan parameter default harus didokumentasikan di
   single-texture dengan A=1.0.
 - 2025-06-17: `grabToImage()` intermittent di Wayland — kadang tidak
   menulis file saat stdout/stderr di-redirect ke /dev/null.
+- 2025-06-17 (Terbaru): Multi-sampler ShaderEffect bug di Qt 6.11 — setiap
+  ShaderEffect hanya boleh punya SATU `sampler2D`. Tambahan sampler (kedua,
+  ketiga) menyebabkan output flat tanpa error. Workaround: channel-packed
+  single-texture dengan A=1.0.
 - 2025-06-17 (Terbaru): 1 Jacobi pressure iteration menghasilkan ∇p ≈ 0 di
   interior (numpy verified). Ini matematis benar, bukan bug. Jumlah iterasi
   final (≥4, target 19) akan ditest saat pipeline penuh.
@@ -225,10 +231,23 @@ compile sebelum curiga ke logika shader.
 
 ### Multi-Sampler Bug di Qt 6.11
 
-ShaderEffect dengan LEBIH DARI SATU `sampler2D` (binding 0, 1, ...) menghasilkan
-output flat (R=128 untuk bias-encoded value). Bahkan dengan `layout(binding=N)`
-yang benar di QSB reflection. **WORKAROUND**: encode semua field dalam SATU
-texture RGBA8, hanya gunakan binding 0.
+ShaderEffect dengan LEBIH DARI SATU `layout(binding=N) uniform sampler2D`
+(binding 0, 1, ...) GAGAL membaca texture kedua dengan benar.
+
+**Verified via test 2025-06-17**:
+- 1 sampler + `texture()` calls multiple times (berbeda UV) → **OK** ✓
+- 2 sampler (`binding=0` + `binding=1`) dengan QML `property var` berbeda → **FAIL** ✗
+  - texA (binding 0) membaca texture pertama dengan benar
+  - texB (binding 1+) membaca texture YANG SALAH — bukan texture yang ditentukan
+  - Tidak ada error message dari Qt atau QSB; hanya data yang tidak cocok
+  - Efek terjadi dengan tepat 2 sampler (bukan hanya 3+)
+
+**All existing working shaders** (divergence, subtract_gradient, dll) hanya pakai
+1 sampler dengan multiple `texture()` calls pada UV offset berbeda.
+
+**WORKAROUND**: encode semua field dalam SATU texture RGBA8, hanya gunakan
+binding 0. Untuk operasi yang butuh multiple texture input, gunakan multi-pass
+sequential (beberapa ShaderEffect berantai).
 
 ### Premultiplied Alpha pada Layer
 
@@ -303,6 +322,26 @@ layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 void main() { fragColor = texture(simTex, qt_TexCoord0); }
 ```
+
+### MacCormack Correction di-skip (Future Improvement)
+
+MacCormack advection correction (forward → reverse → adjust) membutuhkan
+3 texture input (forward_vel, reverse_vel, original_vel) = 6 float values.
+Dengan limit 1 sampler (lihat Multi-Sampler Bug), hanya 4 channel RGBA
+tersedia — tidak muat untuk 6 nilai tanpa multi-pass packing.
+
+**Keputusan**: Forward-only semi-Lagrangian advection untuk sekarang.
+
+**Potential future improvement**: Implementasikan MacCormack via multi-pass
+sequential dengan intermediate texture packing:
+1. Forward output: RG=forward, B=0.5*original.x, A=1.0
+2. Reverse output: RG=reverse, B=forward.x, A=forward.y (bawa forward dari step 1)
+3. Adjust: butuh juga 0.5*original.y — belum ada solusi channel tanpa pecah
+   menjadi 4+ pass (terlalu banyak untuk screensaver)
+
+Semi-Lagrangian forward-only sudah cukup baik untuk visual screensaver.
+Jika hasil terasa kurang sharp/detail di pipeline penuh, revisit opsi
+multi-pass packing nanti.
 
 ### 1 Pressure Jacobi Iterasi: ∇p ≈ 0 di Interior
 
