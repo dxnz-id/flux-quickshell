@@ -135,12 +135,13 @@ Detail matematika dan parameter default harus didokumentasikan di
 
 ### Sedang Dikerjakan
 
-- [ ] Verifikasi WGSL flux-reference + isi `dev/notes/`
+- [x] Verifikasi WGSL flux-reference + isi `dev/notes/`
+
+### Sedang Dikerjakan
+
+- [ ] Tulis shader GLSL (divergence, pressure, subtract_gradient dulu)
 
 ### Belum Dimulai
-
-- [ ] Analisis WGSL flux-reference → `dev/notes/navier-stokes-ref.md`
-- [ ] Analisis porting WGSL → GLSL → `dev/notes/shader-porting.md`
 - [ ] Tulis shader: divergence, pressure, subtract_gradient
 - [ ] Tulis shader: advect (forward, reverse, adjust)
 - [ ] Tulis shader: diffuse
@@ -155,8 +156,10 @@ Detail matematika dan parameter default harus didokumentasikan di
 
 ### Known Issues
 
-- (kosong, isi seiring development — selalu tulis tanggal dan konteks
-  supaya mudah ditelusuri)
+- 2025-06-17: Diffuse dan pressure solver di flux-reference pakai **Jacobi iteration**
+  (bukan Gauss-Seidel). Shader membaca neighbor dari input texture yang sama
+  dan menulis ke output texture terpisah. Ini harusnya dicatat di pipeline
+  description AGENTS.md agar tidak salah saat porting ke GLSL multi-pass.
 
 ---
 
