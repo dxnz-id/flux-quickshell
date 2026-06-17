@@ -97,9 +97,13 @@ flux-quickshell/
 - **Parameter**: Params texture (Canvas 1×8 RGBA8) + time texture (Canvas 1×1 RGBA8)
 - **Binding convention**: binding 8 = `paramsTexture`, binding 9 = `timeTexture`
   (lanjutkan convention ini untuk binding lain agar konsisten)
-- **Target integrasi**: Quickshell lockscreen di dots-hyprfork — path module lock
-  perlu diverifikasi ulang dari source aktual, jangan asumsikan dari memori
-  (cek `dots-hyprfork/dots/.config/quickshell/`)
+- **Quickshell version**: 0.2.1 (revision 7511545) linked against Qt 6.11.1 (sama dengan sandbox)
+- **Target integrasi**: Quickshell lockscreen di dots-hyprfork:
+  - Lock entry: `dots/.config/quickshell/ii/shell.qml` → `IllogicalImpulseFamily` → `Lock` → `LockScreen` → `LockSurface`
+  - Lock path aktual (ii): `dots/.config/quickshell/ii/modules/ii/lock/LockSurface.qml`
+  - Lock path aktual (waffle): `dots/.config/quickshell/ii/modules/waffle/lock/WaffleLock.qml`
+  - LockScreen base (common): `dots/.config/quickshell/ii/modules/common/panels/lock/LockScreen.qml`
+  - LockContext (PAM + state): `dots/.config/quickshell/ii/modules/common/panels/lock/LockContext.qml`
 
 ### State Machine Lockscreen (Target Akhir)
 
@@ -115,6 +119,22 @@ Password benar (Normal)  →  langsung ke desktop
 Detail mekanisme IPC (GlobalShortcut/IpcHandler) perlu diverifikasi ulang
 di source Quickshell aktual sebelum implementasi — JANGAN asumsikan
 `hyprctl dispatch global` tanpa cek dulu.
+
+### Verified Lock IPC Mechanism (2025-06-18)
+
+Dari source aktual `dots-hyprfork`:
+
+- **Lock trigger**: `LockScreen.qml` punya `IpcHandler { target: "lock"; function activate() { root.lock(); } }`
+  dan `GlobalShortcut { name: "lock"; onPressed: root.lock }`. Keduanya manggil `root.lock()`.
+- **Lock function**: `GlobalStates.screenLocked = true` → `WlSessionLock.locked = true` →
+  `WlSessionLockSurface` muncul. **Bukan** `hyprctl dispatch global`.
+- **IpcHandler pattern**: `target` string (e.g., "lock", "bar", "panelFamily") + methods
+  (`activate()`, `focus()`, etc.). Dipanggil via Quickshell IPC internal (bukan DBus atau hyprctl).
+- **GlobalShortcut pattern**: `name` + `description` + `onPressed`/`onReleased`.
+  Didaftarkan di Hyprland sebagai keybind. Nama didaftarkan via `quickshell.shortcuts` config.
+- **Custom signal for lockFlux**: Bisa add `IpcHandler { target: "lockFlux"; function activate() { ... } }`
+  dan `GlobalShortcut { name: "lockFlux"; ... }` di `LockScreen.qml` untuk trigger berbeda.
+  Atau tambah property baru di `GlobalStates.qml` seperti `fluxMode: bool`.
 
 ---
 
@@ -189,9 +209,13 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] FluxSimulation.qml pressure chain extended to 19 iterations (matching flux-reference default)
 - [x] Verified 19 iterations vs 8: max velocity 229 vs 255 (better divergence-free), same FPS ~60, mean stable ~99, std ~72
 - [x] frameCount property exposed for external FPS measurement
+- [x] Quickshell API verification:
+  - FrameAnimation tersedia (Quickshell-native, frame-synced, `frameTime` variable available in onTriggered)
+  - IpcHandler + GlobalShortcut digunakan luas di dots-hyprfork (verified lock IPC: `GlobalStates.screenLocked` → `WlSessionLock` → `WlSessionLockSurface`)
+  - SessionLockSurface structure mapped (LockScreen → LockSurface → UI components)
+  - ShaderEffect test in Quickshell: passthrough (1 sampler) OK, switch_test (2 samplers) loads without errors
 
 ### Belum Dimulai
-- [ ] Verifikasi Quickshell API: FrameAnimation, Singleton/QtObject pattern, GlobalShortcut/IpcHandler, SessionLockSurface — cek source aktual, jangan asumsi
 - [ ] `FluxBackground.qml` untuk komponen fullscreen
 - [ ] `LockState` untuk state machine mode Normal/Flux
 - [ ] Line rendering (garis/partikel seperti Flux asli — vertex shader, hindari custom vertex shader Qt 6 jika segfault masih terjadi)

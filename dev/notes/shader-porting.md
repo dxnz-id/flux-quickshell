@@ -332,6 +332,88 @@ Sandbox Qt Quick app di `dev/shader-sandbox/`:
 4. `texelFetch()` rejected by GLSL ES 1.00 target — use `texture()` with centered UV.
 5. qsb will correctly cross-compile `#version 420` source to GLSL 120/150 targets.
 
+## Quickshell Runtime Verification
+
+### Date
+2025-06-18
+
+### Test Setup
+- **Runtime**: Quickshell 0.2.1 (revision 7511545)
+- **Qt version**: 6.11.1 (sama persis dengan sandbox)
+- **Backend**: Wayland via Hyprland
+- **Config**: Minimal `ShellRoot` + `PanelWindow` di `dev/quickshell-test/shell.qml`
+- **Shaders tested**: `passthrough.qsb` (1 sampler), `switch_test.qsb` (2 sampler)
+
+### Test Results
+
+| Test | Status | Notes |
+|------|--------|-------|
+| ShellRoot + PanelWindow loads | ✅ | No errors |
+| ShaderEffect (1 sampler, passthrough.qsb) | ✅ | No warnings, no errors, loaded cleanly |
+| ShaderEffect (2 sampler, switch_test.qsb) | ✅ | Loaded without warnings — no build/load-time errors |
+| Runtime stability | ✅ | Both configs ran for 10s without crash |
+
+### FrameAnimation
+- **Tersedia di Quickshell**: ✅ YA
+- **Digunakan di**: SineCookie, StyledProgressBar, StyledSlider, VisualizerWidget (4 files)
+- **Import**: Tidak perlu import eksplisit — built-in ke Quickshell/QtQuick
+- **API**: `FrameAnimation { running: bool; onTriggered: { /* punya akses ke frameTime */ } }`
+- **frameTime**: Delta time dalam detik, tersedia sebagai variable di handler
+
+### IPC Mechanism
+- **Tipe**: `IpcHandler` + `GlobalShortcut` — keduanya tersedia
+- **IpcHandler pattern**: `IpcHandler { target: "lock"; function activate(): void { ... } }`
+  - `target` string digunakan sebagai identifier IPC
+  - Method `activate()` dipanggil saat IPC diterima
+- **GlobalShortcut pattern**: `GlobalShortcut { name: "lock"; description: "..."; onPressed: { ... } }`
+  - Didaftarkan ke compositor sebagai keybind global
+  - `name` didaftarkan di `quickshell.shortcuts` config
+
+### SessionLockSurface
+- **Import**: `import Quickshell.Wayland`
+- **Path lock aktual (ii)**: `dots/.config/quickshell/ii/modules/ii/lock/LockSurface.qml`
+- **Path lock aktual (waffle)**: `dots/.config/quickshell/ii/modules/waffle/lock/WaffleLock.qml`
+- **LockScreen base**: `dots/.config/quickshell/ii/modules/common/panels/lock/LockScreen.qml`
+- **LockContext (PAM)**: `dots/.config/quickshell/ii/modules/common/panels/lock/LockContext.qml`
+- **Struktur**:
+  ```
+  LockScreen (common/Scope)
+    ├── LockContext (PAM, state, signals: unlocked, failed)
+    ├── WlSessionLock { locked: GlobalStates.screenLocked }
+    │    └── WlSessionLockSurface { Loader { active: screenLocked → lockSurface } }
+    └── lockSurface: Component (dari Lock.qml → LockSurface.qml / WaffleLock.qml)
+         └── Required property context: LockContext
+  ```
+- **Titik integrasi FluxBackground**: Di `LockSurface.qml` atau `WaffleLock.qml`,
+  perlu ditambah background layer (ShaderEffect + FluxSimulation) DI BAWAH UI.
+  Misal: `Item { z: 0; FluxBackground {} }` di dalam lock surface component.
+
+### ShaderEffect Compatibility
+
+ShaderEffect pattern yang sudah terverifikasi di sandbox standalone **juga
+berjalan tanpa error di Quickshell runtime**:
+
+- 1 sampler pattern: ✅ (passthrough.qsb, no errors)
+- 2 sampler pattern: ✅ (switch_test.qsb loads without warnings)
+- ShaderEffectSource chain: ⚠️ Belum diverifikasi (perlu test visual)
+
+**Catatan**: Meskipun 2 sampler tidak menghasilkan error loading, ini TIDAK
+menjamin binding texture yang benar. Multi-sampler bug di Qt 6.11 adalah
+GPU-level texture binding issue yang TIDAK menghasilkan CPU-side error.
+Visual verification masih diperlukan untuk memastikan 2 sampler berfungsi
+di Quickshell. **Until then, tetap patuhi 1-sampler constraint.**
+
+### Key Differences from Sandbox
+
+- Quickshell menggunakan `PanelWindow` sebagai container, bukan `Window`
+  standalone seperti sandbox
+- PanelWindow memerlukan `ShellRoot` sebagai parent root
+- Tidak ada perbedaan signifikan dalam ShaderEffect API (API sama)
+- `FrameAnimation` tersedia sebagai alternatif `Timer` untuk frame-synced loop
+  (lebih efisien daripada Timer 16ms untuk continuous rendering)
+- IpcHandler memungkinkan trigger eksternal tanpa hyprctl/keybind
+
+
 ## Key Differences in Approach
 
 ### Compute Shader → Fragment Shader
