@@ -142,11 +142,11 @@ Item {
         format: ShaderEffectSource.RGBA16F
     }
 
-    /* ── Per-frame trigger: alternate passAdvect input between srcFinalA and srcFinalB ── */
+    /* ── Per-frame trigger: FrameAnimation = vsync-locked, no timer drift ── */
     property bool _pingA: true
     property int _frameCount: 0
-    Timer {
-        interval: 16; running: root.running; repeat: true
+    FrameAnimation {
+        running: root.running
         onTriggered: {
             passAdvect.simTex = root._pingA ? srcFinalA : srcFinalB
             root._pingA = !root._pingA
