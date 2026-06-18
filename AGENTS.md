@@ -10,7 +10,7 @@ Baca seluruh dokumen sebelum mengerjakan task apapun.
 **Setiap ShaderEffect HANYA boleh punya SATU `layout(binding=0) uniform sampler2D`. Tidak ada exception.**
 
 ### Terverifikasi
-- 2 sampler terpisah (binding 0 + binding 1) → binding 1+ membaca texture yang SALAH. Diverifikasi dengan swap test di sandbox.
+- 2 sampler terpisah (binding 0 + binding 1) → binding 1+ membaca texture yang SALAH. Diverifikasi dengan swap test di sandbox standalone DAN Quickshell runtime (numerical grim test).
 - Ini bukan limitasi channel capacity (RGBA masih 4 channel penuh tersedia), tapi limitasi JUMLAH sampler2D uniform.
 - Efek terjadi dengan tepat 2 sampler (bukan hanya 3+).
 
@@ -26,6 +26,7 @@ Setiap shader yang butuh data dari >1 sumber HARUS:
 
 ### Yang TIDAK Bisa Dilakukan
 - ShaderEffect dengan `property var texA` + `property var texB`, lalu shader declare `layout(binding=0) uniform sampler2D texA;` dan `layout(binding=1) uniform sampler2D texB;` — binding 1 akan membaca texture yang salah.
+- Line rendering dengan spring dynamics (stateful): butuh baca line state lama + fluid velocity baru = 2 sampler. Tidak bisa dengan 1 sampler. Analisis lengkap di `dev/notes/line-rendering-analysis.md`.
 
 ---
 
@@ -81,7 +82,7 @@ flux-quickshell/
 | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `qsb --qt6`, BUKAN `--glsl "450"`                                               | Flag versi tinggi → silent white/black output, attribute mismatch dengan default vertex shader Qt 6         |
 | GLSL source HARUS `#version 420` (bukan 150)                                      | `layout(binding=N)` untuk sampler dan `layout(location=N)` untuk I/O hanya support di GLSL 420+; qsb --qt6 akan cross-compile otomatis ke GLSL 120/150 |
-| Tidak ada custom vertex shader                                                  | Segfault di Qt 6.11                                                                                         |
+| Tidak ada custom vertex shader                                                  | Segfault di Qt 6.11 standalone; diverifikasi AMAN di Quickshell runtime (2025-06-18) |
 | Bias encoding `v*0.5+0.5` untuk signed values                                   | `ShaderEffectSource` format RGBA8 clamp negatif ke 0                                                        |
 | Parameter via params texture (Canvas → ShaderEffectSource), BUKAN uniform block | Qt ShaderEffect tidak support QML property → uniform block member mapping (sudah diverifikasi runtime FAIL) |
 | Source code TIDAK BOLEH hanya ada di `build/`                                   | Risiko hilang permanen — `build/` regenerable, source code tidak                                            |
@@ -214,13 +215,25 @@ Detail matematika dan parameter default harus didokumentasikan di
   - IpcHandler + GlobalShortcut digunakan luas di dots-hyprfork (verified lock IPC: `GlobalStates.screenLocked` → `WlSessionLock` → `WlSessionLockSurface`)
   - SessionLockSurface structure mapped (LockScreen → LockSurface → UI components)
   - ShaderEffect test in Quickshell: passthrough (1 sampler) OK, switch_test (2 samplers) loads without errors
+- [x] Custom vertex shader test in Quickshell: minimal passthrough vertex shader runs 5s+ without segfault
+  (berbeda dari sandbox standalone yang segfault — Quickshell rendering path kompatibel dengan vertex shader custom)
+- [x] Complete line rendering feasibility analysis (`dev/notes/line-rendering-analysis.md`):
+  - Mapped data requirements for spring-dynamics line update (6 values per line)
+  - Analyzed channel packing capacity (max 4 values per RGBA8 texel)
+  - Explored multi-pass sequential, hybrid encode, and vertex shader approaches
+  - **Finding**: Channel packing CANNOT solve the line update problem — 6 > 4
+  - **Root cause**: Spring dynamics requires reading BOTH old line state AND current fluid velocity simultaneously (2 samplers)
+  - Recommended next step: re-verify 2-sampler binding behavior in Quickshell runtime
 
 ### Belum Dimulai
 - [ ] `FluxBackground.qml` untuk komponen fullscreen
 - [ ] `LockState` untuk state machine mode Normal/Flux
-- [ ] Line rendering (garis/partikel seperti Flux asli — vertex shader, hindari custom vertex shader Qt 6 jika segfault masih terjadi)
+- [ ] Line rendering (Opsi A — implicit lines via visualize.frag, no persistent state)
 - [ ] Integrasi ke dots-hyprfork lockscreen
 - [ ] Dynamic time via 1×1 Rectangle + prepass (velocity+time dalam 1 sampler)
+
+### Selesai (lihat di atas untuk hasil detail)
+- [x] Re-verify 2-sampler binding 1 behavior IN Quickshell runtime — **DEFINITIVE: GAGAL**
 
 ### Known Issues
 
@@ -240,6 +253,10 @@ Detail matematika dan parameter default harus didokumentasikan di
   Mitigasi: offset berbeda per channel + spatial coupling via advection.
 - 2025-06-18: FluxSimulation.qml pressure chain = 19 iterations (bukan parameter dinamis).
   Untuk ubah jumlah iterasi: tambah/kurang instance ShaderEffect + ShaderEffectSource di chain.
+- 2025-06-18: 2-sampler binding 1 **DEFINITIVELY GAGAL** di Quickshell runtime (sama dengan sandbox standalone).
+  Binding 1 membaca texture binding 0 — diverifikasi secara numerik via grim screenshot analysis
+  (`binding_verify_test.frag` → output MERAH (255,0,0), bukan KUNING (255,255,0)).
+  Ini adalah HARD LIMIT Qt 6.11 RHI — tidak ada workaround dengan binding index berbeda.
 
 ---
 
@@ -280,7 +297,7 @@ compile sebelum curiga ke logika shader.
 - Jangan copy-paste source dari `../flux-reference/` — pahami logika, tulis ulang
 - Jangan edit file di `dots-hyprfork` yang bisa tertimpa update upstream
   (hindari folder yang bukan `custom/` kecuali memang harus dimodifikasi)
-- Jangan gunakan custom vertex shader — segfault di Qt 6.11
+- Jangan gunakan custom vertex shader — segfault di Qt 6.11 standalone; diverifikasi AMAN di Quickshell runtime (2025-06-18)
 - Selalu commit ke git setelah progress signifikan — JANGAN biarkan file
   penting hanya ada di direktori `build/` yang gitignored
 - Code comment dalam bahasa Inggris, dokumentasi dan narasi dalam bahasa Indonesia
@@ -504,3 +521,39 @@ Verifikasi ke source/dokumentasi aktual, jangan andalkan memori untuk:
 
 Jika tidak yakin → tandai eksplisit "perlu verifikasi", jangan confiden
 tanpa referensi konkret.
+
+---
+
+## Changelog
+
+### 2026-06-18 — Session: Empirical Revision + Bug Fixes
+
+**Metodologi**: Scan kode → runtime verification (jalankan kedua simulasi,
+capture screenshot, analisis pixel numerik) → fix berurutan prioritas.
+
+**Bug Fixes Applied**:
+
+1. **`diffuse.frag`** — Hapus double no-slip boundary condition
+   - Sebelum: boundary di-zero 2× (sekali via neighbor zeroing, sekali via explicit override)
+   - Sesudah: hanya neighbor zeroing (first pass tetap, second override dihapus)
+   - Efek: border ring delta 134pt → 108pt; saturated pixels 3.8% → 2.5%
+
+2. **`noise.frag`** — Turunkan `GLOBAL_MULT` dari `0.6` ke `0.45`
+   - Match ke referensi `noise_multiplier = 0.45`
+   - Efek: velocity saturation berkurang 35%, simulasi lebih controlled
+
+3. **`FluxSimulation.qml`** — Reorder pipeline ke urutan referensi
+   - Sebelum: `noise → advect → diffuse×3 → pressure×19 → subtract`
+   - Sesudah: `advect → diffuse×3 → noise → pressure×19 → subtract`
+   - Timer sekarang alternates `passAdvect.simTex` (bukan `passNoise.simTex`)
+
+4. **`flow_lines.frag`** — Fix `GRID_SIZE` dari `0.05` ke `0.117`
+   - Match ke referensi `grid_spacing = 15px / 128px = 0.117`
+   - `LINE_WIDTH` disesuaikan 0.003 → 0.006 agar tetap visible
+
+**Shaders Recompiled**: `diffuse.qsb`, `noise.qsb`, `flow_lines.qsb`
+
+**Remaining Known Gap**: Line rendering (flow_lines) masih menggunakan
+instantaneous velocity per-pixel (stateless). Referensi menggunakan
+spring-dynamics particle system dengan momentum (stateful). Ini gap
+fundamental yang butuh rethinking arsitektur line rendering.

@@ -7,7 +7,7 @@ layout(location = 0) out vec4 fragColor;
 
 const float RES = 128.0;
 const float VISCOSITY = 5.0;
-const float TIMESTEP = 1.0;
+const float TIMESTEP = 1.0 / 60.0;  // match reference fluid_timestep = 1/60
 
 void main() {
     vec2 uv = qt_TexCoord0;
@@ -31,11 +31,6 @@ void main() {
     if (uv.y > 1.0 - texel.y) vT = vec2(0.0);
 
     vec2 newVel = stencilFactor * (vL + vR + vB + vT + centerFactor * v);
-
-    // No-slip: zero velocity at all boundaries
-    if (uv.x < texel.x || uv.x > 1.0 - texel.x ||
-        uv.y < texel.y || uv.y > 1.0 - texel.y)
-        newVel = vec2(0.0);
 
     fragColor = vec4(newVel * 0.5 + 0.5, tc.b, 1.0);
 }

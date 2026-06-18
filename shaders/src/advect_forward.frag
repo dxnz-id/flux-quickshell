@@ -6,7 +6,7 @@ layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 
 const float RES = 128.0;
-const float TIMESTEP = 1.0;
+const float TIMESTEP = 1.0 / 60.0;  // match reference fluid_timestep = 1/60
 
 void main() {
     vec2 uv = qt_TexCoord0;

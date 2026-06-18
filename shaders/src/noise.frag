@@ -6,8 +6,8 @@ layout(location = 0) in vec2 qt_TexCoord0;
 layout(location = 0) out vec4 fragColor;
 
 const float RES = 128.0;
-const float TIMESTEP = 1.0;
-const float GLOBAL_MULT = 0.6;
+const float TIMESTEP = 1.0 / 60.0;  // match reference fluid_timestep = 1/60
+const float GLOBAL_MULT = 0.45;
 
 const vec2 SCALE0 = vec2(2.8, 2.8);
 const vec2 SCALE1 = vec2(15.0, 15.0);

@@ -413,6 +413,30 @@ di Quickshell. **Until then, tetap patuhi 1-sampler constraint.**
   (lebih efisien daripada Timer 16ms untuk continuous rendering)
 - IpcHandler memungkinkan trigger eksternal tanpa hyprctl/keybind
 
+### Custom Vertex Shader di Quickshell Runtime
+
+- **Date**: 2025-06-18
+- **Shader**: `test_vertex.vert` (minimal passthrough: qt_Vertex → qt_Matrix * qt_Vertex)
+- **Fragment**: `test_vertex_frag.frag` (solid red output)
+- **Runtime**: Quickshell 0.2.1, Qt 6.11.1
+- **Exit code**: 124 (timeout 5s)
+- **Hasil**: **TIDAK SEGFAULT** — process berjalan stabil selama 5s tanpa crash
+- **Berbeda dari sandbox standalone**: YA — di sandbox (QGuiApplication + QQmlApplicationEngine),
+  custom vertex shader confirmed segfault. Di Quickshell runtime, custom vertex shader
+  berfungsi tanpa masalah.
+
+**Kesimpulan penting**: Segfault custom vertex shader adalah masalah Qt 6.11
+pada aplikasi standalone (QGuiApplication), BUKAN masalah universal.
+Quickshell memiliki rendering path yang berbeda (PanelWindow + ShellRoot)
+yang kompatibel dengan custom vertex shader.
+
+**Implikasi untuk line rendering**: LINE RENDERING DENGAN CUSTOM VERTEX SHADER
+BISA DILANJUTKAN. Tidak perlu workaround QML Shape/Repeater.
+
+**Catatan**: Test ini hanya memverifikasi vertex shader minimal (passthrough).
+Vertex shader untuk line rendering (expand basepoint jadi quad) mungkin
+memiliki kebutuhan tambahan (akses ke data per-instance, dll) yang perlu
+diverifikasi terpisah. Tapi hurdle utama (segfault) sudah terlewati.
 
 ## Key Differences in Approach
 
