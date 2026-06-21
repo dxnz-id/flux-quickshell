@@ -1,17 +1,8 @@
 #version 440
 
-layout(binding = 0, std140) uniform FluidUniforms {
-    float timestep;
-    float dissipation;
-    float alpha;
-    float r_beta;
-    float center_factor;
-    float stencil_factor;
-} u;
-
-layout(binding = 1) uniform sampler2D forwardTex;
-layout(binding = 2) uniform sampler2D reverseTex;
-layout(binding = 3) uniform sampler2D velocityTex;
+layout(binding = 0) uniform sampler2D forwardTex;
+layout(binding = 1) uniform sampler2D reverseTex;
+layout(binding = 2) uniform sampler2D velocityTex;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -22,7 +13,6 @@ void main() {
     vec2 forward = texelFetch(forwardTex, pos, 0).xy;
     vec2 reverse = texelFetch(reverseTex, pos, 0).xy;
 
-    // Clamp to neighbor min/max (MacCormark limiter)
     ivec2 size = textureSize(velocityTex, 0);
     vec2 l = texelFetch(velocityTex, max(pos + ivec2(-1, 0), ivec2(0)), 0).xy;
     vec2 r = texelFetch(velocityTex, min(pos + ivec2(1, 0), size - 1), 0).xy;

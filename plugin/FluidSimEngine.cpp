@@ -3,23 +3,71 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <cstring>
 #include <random>
 #include <vector>
 #include <QDebug>
 
 #pragma pack(push, 1)
 
+static uint16_t f32to16(float val) {
+    uint32_t u;
+    memcpy(&u, &val, 4);
+    uint16_t s = (u >> 16) & 0x8000;
+    uint32_t abs_u = u & 0x7fffffffu;
+    if (abs_u == 0) return s;
+    if (abs_u > 0x7f800000u) return s | 0x7e00;
+    if (abs_u == 0x7f800000u) return s | 0x7c00;
+    int e = int((u >> 23) & 0xff) - 127 + 15;
+    uint32_t m = (u >> 13) & 0x3ff;
+    if (e <= 0) {
+        if (e < -10) return s;
+        m = ((u & 0x7fffffu) | 0x800000u) >> (13 - e + 1);
+        e = 0;
+    } else if (e >= 31) {
+        e = 31; m = 0;
+    }
+    return uint16_t(s | uint16_t(e << 10) | uint16_t(m & 0x3ff));
+}
+
+static int noiseHash(int x, int y, int seed) {
+    unsigned int h = unsigned(seed);
+    h = h * 374761393u + unsigned(x) * 3266489917u + unsigned(y) * 668265263u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return int(h & 0x7fffffffu);
+}
+
+static float smoothNoise(float x, float y, int seed) {
+    int ix = int(floor(x));
+    int iy = int(floor(y));
+    float fx = x - float(ix);
+    float fy = y - float(iy);
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fy = fy * fy * (3.0f - 2.0f * fy);
+    float n00 = float(noiseHash(ix, iy, seed)) / float(0x7fffffffu);
+    float n10 = float(noiseHash(ix+1, iy, seed)) / float(0x7fffffffu);
+    float n01 = float(noiseHash(ix, iy+1, seed)) / float(0x7fffffffu);
+    float n11 = float(noiseHash(ix+1, iy+1, seed)) / float(0x7fffffffu);
+    return n00 + (n10 - n00) * fx + ((n01 + (n11 - n01) * fx) - (n00 + (n10 - n00) * fx)) * fy;
+}
+
+static float fbm(float x, float y, int seed) {
+    float v = 0.0f, a = 1.0f, f = 1.0f;
+    for (int i = 0; i < 3; i++) { v += a * smoothNoise(x*f, y*f, seed+i*100); a *= 0.5f; f *= 2.0f; }
+    return v * 2.0f - 1.0f;
+}
+
 #define TAU 6.283185307179586f
 
 struct FluidUniforms {
-    float dt;
+    float timestep;
     float dissipation;
-    float oneOverDt;
-    float centerFactor;
-    float stencilFactor;
-    float _pad0[3];
+    float alpha;
+    float r_beta;
+    float center_factor;
+    float stencil_factor;
 };
-static_assert(sizeof(FluidUniforms) == 32, "FluidUniforms must be 32 bytes");
+static_assert(sizeof(FluidUniforms) == 24, "FluidUniforms must be 24 bytes");
 
 struct Direction {
     float dir;
@@ -254,7 +302,9 @@ void FluidSimEngine::createBuffers()
     float alpha = m_viscosity * dt * m_fluidSize * m_fluidSize;
     float centerFactor = 1.0f / (1.0f + 4.0f * alpha);
     float stencilFactor = alpha / (1.0f + 4.0f * alpha);
-    FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor, 0, 0 };
+    fprintf(stderr, "  params: dt=%.6f viscosity=%.1f size=%d\n", dt, m_viscosity, m_fluidSize);
+    fprintf(stderr, "  params: alpha=%.6f center=%.6f stencil=%.6f\n", alpha, centerFactor, stencilFactor);
+    FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor };
     Direction dir = { 1.0f, {} };
     NoiseUniforms nu = { m_noiseMultiplier, float(2 * m_fluidSize), {} };
     PushConstants pc = { dt, {} };
@@ -367,44 +417,34 @@ void FluidSimEngine::createGraphicsPipelines()
         outPipeline.reset(pp);
     };
 
-    // Noise
-    m_passNoise.srb.reset(buildBinding({
-        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, noiseUBuf),
-        QRhiShaderResourceBinding::uniformBuffer(1, QRhiShaderResourceBinding::FragmentStage, noiseChBuf),
-    }));
+    // Noise (procedural, no texture inputs)
+    m_passNoise.srb.reset(buildBinding({ }));
     makePipeline("pass_noise", m_passNoise.srb.get(), m_rpDescRGBA16F.get(), m_passNoise.pipeline);
 
     // Advection [0] reads vel[0]
     m_passAdvection[0].srb.reset(buildBinding({
-        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, fluidUBuf),
-        QRhiShaderResourceBinding::uniformBuffer(1, QRhiShaderResourceBinding::FragmentStage, dirBuf),
-        QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[0].get(), nearest),
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[0].get(), nearest),
     }));
     makePipeline("pass_advect", m_passAdvection[0].srb.get(), m_rpDescRGBA16F.get(), m_passAdvection[0].pipeline);
 
     // Advection [1] reads vel[1]
     m_passAdvection[1].srb.reset(buildBinding({
-        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, fluidUBuf),
-        QRhiShaderResourceBinding::uniformBuffer(1, QRhiShaderResourceBinding::FragmentStage, dirBuf),
-        QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[1].get(), nearest),
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[1].get(), nearest),
     }));
     makePipeline("pass_advect", m_passAdvection[1].srb.get(), m_rpDescRGBA16F.get(), m_passAdvection[1].pipeline);
 
     // Advection reverse (reads advectionFwd)
     m_passAdvectionRev.srb.reset(buildBinding({
-        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, fluidUBuf),
-        QRhiShaderResourceBinding::uniformBuffer(1, QRhiShaderResourceBinding::FragmentStage, dirBuf),
-        QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_advectionFwdTex.get(), nearest),
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_advectionFwdTex.get(), nearest),
     }));
     makePipeline("pass_advect", m_passAdvectionRev.srb.get(), m_rpDescRGBA16F.get(), m_passAdvectionRev.pipeline);
 
     // Adjust [vi] reads forwardTex[0], reverseTex[0], vel[vi]
     for (int i = 0; i < 2; i++) {
         m_passAdjust[i].srb.reset(buildBinding({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, fluidUBuf),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_advectionFwdTex.get(), nearest),
-            QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_advectionRevTex.get(), nearest),
-            QRhiShaderResourceBinding::sampledTexture(3, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[i].get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_advectionFwdTex.get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_advectionRevTex.get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[i].get(), nearest),
         }));
         makePipeline("pass_adjust", m_passAdjust[i].srb.get(), m_rpDescRGBA16F.get(), m_passAdjust[i].pipeline);
     }
@@ -412,8 +452,7 @@ void FluidSimEngine::createGraphicsPipelines()
     // Diffuse [vi] reads vel[vi]
     for (int i = 0; i < 2; i++) {
         m_passDiffuse[i].srb.reset(buildBinding({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, fluidUBuf),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[i].get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[i].get(), nearest),
         }));
         makePipeline("pass_diffuse", m_passDiffuse[i].srb.get(), m_rpDescRGBA16F.get(), m_passDiffuse[i].pipeline);
     }
@@ -421,9 +460,8 @@ void FluidSimEngine::createGraphicsPipelines()
     // Inject noise [vi] reads noiseTex + vel[vi]
     for (int i = 0; i < 2; i++) {
         m_passInjectNoise[i].srb.reset(buildBinding({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, pushBuf),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_noiseTex.get(), nearest),
-            QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[i].get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_noiseTex.get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[i].get(), nearest),
         }));
         makePipeline("pass_inject_noise", m_passInjectNoise[i].srb.get(), m_rpDescRGBA16F.get(), m_passInjectNoise[i].pipeline);
     }
@@ -439,9 +477,8 @@ void FluidSimEngine::createGraphicsPipelines()
     // Pressure [pi] reads divergenceTex + pressureTex[pi]
     for (int i = 0; i < 2; i++) {
         m_passPressure[i].srb.reset(buildBinding({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, fluidUBuf),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_divergenceTex.get(), nearest),
-            QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_pressureTex[i].get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_divergenceTex.get(), nearest),
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_pressureTex[i].get(), nearest),
         }));
         makePipeline("pass_pressure", m_passPressure[i].srb.get(), m_rpDescR32F.get(), m_passPressure[i].pipeline);
     }
@@ -450,18 +487,15 @@ void FluidSimEngine::createGraphicsPipelines()
     for (int vi = 0; vi < 2; vi++) {
         for (int pi = 0; pi < 2; pi++) {
             m_passSubtract[vi][pi].srb.reset(buildBinding({
-                QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, fluidUBuf),
-                QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_pressureTex[pi].get(), nearest),
-                QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[vi].get(), nearest),
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_pressureTex[pi].get(), nearest),
+                QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[vi].get(), nearest),
             }));
             makePipeline("pass_subtract", m_passSubtract[vi][pi].srb.get(), m_rpDescRGBA16F.get(), m_passSubtract[vi][pi].pipeline);
         }
     }
 
-    // Dummy (solid red)
-    m_passDummy.srb.reset(buildBinding({
-        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[0].get(), nearest),
-    }));
+    // Dummy (checkerboard)
+    m_passDummy.srb.reset(buildBinding({ }));
     makePipeline("solid_red", m_passDummy.srb.get(), m_rpDescRGBA16F.get(), m_passDummy.pipeline);
 
     fprintf(stderr, "  All solver pipelines created\n");
@@ -489,9 +523,14 @@ void FluidSimEngine::createDisplayPipeline(QRhi *rhi)
         QByteArray((const char*)verts, sizeof(verts)));
 }
 
-static constexpr int PASSES_PER_FRAME = 16;
+static constexpr int PASSES_PER_FRAME = 32;
 static constexpr int TOTAL_PHASES =
-    2; // dummy + subtract
+    3   // 0-2: diffuse ×3
+    + 1   // 3: inject noise
+    + 1   // 4: divergence
+    + 19  // 5-23: pressure ×19
+    + 1   // 24: subtract gradient
+    ;
 
 void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
 {
@@ -511,25 +550,33 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
     m_pendingDisplayUploadBatch = nullptr;
     m_pendingQuadUploadBatch = nullptr;
 
-    if (m_stepPhase == 0) {
-        m_elapsedTime += dt;
-        updateNoiseChannels(m_fluidTimestep);
-    }
-
     int s = m_fluidSize;
     int ns = 2 * m_fluidSize;
 
-    NoiseChannelBlock ncb;
-    auto &mc = m_channels;
-    auto packCh = [&](int i, float &sx, float &sy, float &o1, float &o2, float &bl, float &ml) {
-        sx = mc[i].scale[0]; sy = mc[i].scale[1];
-        o1 = mc[i].offset_1; o2 = mc[i].offset_2;
-        bl = mc[i].blend_factor; ml = mc[i].multiplier;
-    };
-    packCh(0, ncb.ch0_scale_x, ncb.ch0_scale_y, ncb.ch0_off1, ncb.ch0_off2, ncb.ch0_blend, ncb.ch0_mult);
-    packCh(1, ncb.ch1_scale_x, ncb.ch1_scale_y, ncb.ch1_off1, ncb.ch1_off2, ncb.ch1_blend, ncb.ch1_mult);
-    packCh(2, ncb.ch2_scale_x, ncb.ch2_scale_y, ncb.ch2_off1, ncb.ch2_off2, ncb.ch2_blend, ncb.ch2_mult);
-    ncb._pad0[0] = ncb._pad0[1] = 0;
+    // Upload CPU-generated noise at each frame start (deferred to next beginPass)
+    if (m_stepPhase == 0) {
+        QByteArray noiseData(ns * ns * 8, Qt::Uninitialized);
+        uint16_t *np = reinterpret_cast<uint16_t*>(noiseData.data());
+        static int noiseSeed = 0;
+        noiseSeed++;
+        for (int y = 0; y < ns; y++) {
+            for (int x = 0; x < ns; x++) {
+                float fx = float(x) / float(ns);
+                float fy = float(y) / float(ns);
+                float nx = fbm(fx, fy, noiseSeed) * m_noiseMultiplier;
+                float ny = fbm(fx + 100.0f, fy + 100.0f, noiseSeed + 50) * m_noiseMultiplier;
+                int idx = (y * ns + x) * 4;
+                np[idx+0] = f32to16(nx);
+                np[idx+1] = f32to16(ny);
+                np[idx+2] = f32to16(0.0f);
+                np[idx+3] = f32to16(1.0f);
+            }
+        }
+        auto *noiseUb = m_rhi->nextResourceUpdateBatch();
+        QRhiTextureSubresourceUploadDescription noiseSubDesc(noiseData);
+        noiseUb->uploadTexture(m_noiseTex.get(), QRhiTextureUploadDescription({{0, 0, noiseSubDesc}}));
+        cb->resourceUpdate(noiseUb);
+    }
 
     int vi = m_velocityIndex;
     int pi = m_pressureIndex;
@@ -537,28 +584,31 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
 
     for (int done = 0; done < PASSES_PER_FRAME && ph < TOTAL_PHASES; done++, ph++) {
         switch (ph) {
-        case 0: // Dummy: write checkerboard to vel[vi]
-            drawPass(cb, m_velRT[vi].get(), m_passDummy, s, s, nullptr);
-            break;
-
-        case 1: // Adjust — reads vel[vi]
-            drawPass(cb, m_velRT[1 - vi].get(), m_passAdjust[vi], s, s, nullptr);
-            vi = 1 - vi;
-            break;
-
-        case 2: case 3: case 4: // Diffuse ×3 — reads vel[vi]
+        case 0: case 1: case 2: // Diffuse ×3 — reads vel[vi]
             drawPass(cb, m_velRT[1 - vi].get(), m_passDiffuse[vi], s, s, nullptr);
             vi = 1 - vi;
             break;
 
-        case 5: // Inject noise — reads vel[vi]
+        case 3: // Inject noise — reads vel[vi], adds noise
             drawPass(cb, m_velRT[1 - vi].get(), m_passInjectNoise[vi], s, s, nullptr);
             vi = 1 - vi;
             break;
 
-        case 6: // Subtract — reads vel[vi] + press[pi] (press should be zero)
-            drawPass(cb, m_velRT[1 - vi].get(), m_passSubtract[vi][pi], s, s, nullptr);
-            vi = 1 - vi;
+        case 4: // Divergence — reads vel[vi]
+            drawPass(cb, m_divergenceRT.get(), m_passDivergence[vi], s, s, nullptr);
+            break;
+
+        default: // Pressure ×19 (ph 5-23)
+            if (ph >= 5 && ph <= 23) {
+                drawPass(cb, m_pressureRT[1 - pi].get(), m_passPressure[pi], s, s, nullptr);
+                pi = 1 - pi;
+                break;
+            }
+            if (ph == 24) { // Subtract gradient — reads press[pi] + vel[vi]
+                drawPass(cb, m_velRT[1 - vi].get(), m_passSubtract[vi][pi], s, s, nullptr);
+                vi = 1 - vi;
+                break;
+            }
             break;
         }
     }
@@ -591,10 +641,13 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
                         return result;
                     };
                     const int S = 128;
-                    auto velAt = [&](int x, int y, int ch) { return h2f(p[(y * S + x) * 4 + ch]); };
-                    fprintf(stderr, "  velI) [0,0]=(%.3f,%.3f) [4,4]=(%.3f,%.3f)\n",
-                        velAt(0,0,0), velAt(0,0,1),
-                        velAt(4,4,0), velAt(4,4,1));
+                    auto rawAt = [&](int x, int y, int ch) { return p[(y * S + x) * 4 + ch]; };
+                    fprintf(stderr, "  velI) [0,0]=(%.3f,%.3f) raw=(0x%04x,0x%04x)"
+                            " [4,4]=(%.3f,%.3f) raw=(0x%04x,0x%04x)"
+                            " [16,16]=(%.3f,%.3f) raw=(0x%04x,0x%04x)\n",
+                        (double)h2f(p[0]), (double)h2f(p[1]), rawAt(0,0,0), rawAt(0,0,1),
+                        (double)h2f(p[(4*S+4)*4]), (double)h2f(p[(4*S+4)*4+1]), rawAt(4,4,0), rawAt(4,4,1),
+                        (double)h2f(p[(16*S+16)*4]), (double)h2f(p[(16*S+16)*4+1]), rawAt(16,16,0), rawAt(16,16,1));
                 }
             };
             ub->readBackTexture(rb, res);

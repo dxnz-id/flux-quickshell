@@ -129,7 +129,7 @@ private:
     int m_diffusionIterations = 3;
     int m_pressureIterations = 19;
     int m_stepPhase = 0;
-    float m_noiseMultiplier = 0.45f;
+    float m_noiseMultiplier = 0.1f;
 
     // Noise channel state
     static constexpr int NUM_CHANNELS = 3;

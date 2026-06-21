@@ -31,7 +31,7 @@ foreach(frag ${FRAGMENT_SHADERS})
     add_custom_command(
         OUTPUT ${qsb_output}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/shaders
-        COMMAND ${QSB_TOOL} --glsl "150,300 es,440" ${frag} -o ${qsb_output}
+        COMMAND ${QSB_TOOL} --glsl "440" ${frag} -o ${qsb_output}
         MAIN_DEPENDENCY ${frag}
         COMMENT "Baking ${name}.frag -> ${name}.qsb"
     )

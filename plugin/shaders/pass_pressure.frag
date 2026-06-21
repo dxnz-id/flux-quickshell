@@ -1,14 +1,5 @@
 #version 440
 
-layout(binding = 0, std140) uniform FluidUniforms {
-    float timestep;
-    float dissipation;
-    float alpha;
-    float r_beta;
-    float center_factor;
-    float stencil_factor;
-} u;
-
 layout(binding = 1) uniform sampler2D divergenceTex;
 layout(binding = 2) uniform sampler2D pressureTex;
 
@@ -36,7 +27,9 @@ void main() {
     else if (pos.y == size.y - 1)
         t = pressure;
 
-    float newPressure = u.r_beta * (l + r + b + t + u.alpha * divergence);
+    float r_beta = 0.25f;
+    float alpha = -1.0f;
+    float newPressure = r_beta * (l + r + b + t + alpha * divergence);
 
     fragColor = vec4(newPressure, 0.0, 0.0, 1.0);
 }
