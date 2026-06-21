@@ -10,7 +10,9 @@ find_package(Qt6 REQUIRED COMPONENTS Quick Qml ShaderTools)
 qt_add_executable(shader_sandbox main.cpp)
 target_link_libraries(shader_sandbox PRIVATE Qt6::Quick Qt6::Qml)
 
-# Copy QML + shaders to build directory at configure time
+# Copy QML to build (exclude the shaders symlink — handled separately below)
 file(COPY ${CMAKE_SOURCE_DIR}/main.qml DESTINATION ${CMAKE_BINARY_DIR})
-file(COPY ${CMAKE_SOURCE_DIR}/../../qml/ DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/../../qml/ DESTINATION ${CMAKE_BINARY_DIR}
+     PATTERN "shaders" EXCLUDE)
+# Copy compiled shaders into build/shaders/
 file(COPY ${CMAKE_SOURCE_DIR}/../../shaders/compiled/ DESTINATION ${CMAKE_BINARY_DIR}/shaders)
