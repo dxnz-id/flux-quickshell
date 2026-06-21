@@ -1,0 +1,24 @@
+#version 430 core
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) uniform sampler2D nearestSampler;
+
+layout(binding = 1, r32f) writeonly uniform image2D outDivergenceTex;
+
+layout(binding = 2) uniform sampler2D velocityTex;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    ivec2 size = textureSize(velocityTex, 0);
+    vec2 samplePos = vec2(pos) / vec2(size);
+
+    float l = textureLodOffset(velocityTex, samplePos, 0.0, ivec2(-1, 0)).x;
+    float r = textureLodOffset(velocityTex, samplePos, 0.0, ivec2(1, 0)).x;
+    float t = textureLodOffset(velocityTex, samplePos, 0.0, ivec2(0, 1)).y;
+    float b = textureLodOffset(velocityTex, samplePos, 0.0, ivec2(0, -1)).y;
+
+    float newDiv = 0.5 * ((r - l) + (t - b));
+
+    imageStore(outDivergenceTex, pos, vec4(newDiv, 0.0, 0.0, 0.0));
+}

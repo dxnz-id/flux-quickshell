@@ -1,6 +1,7 @@
 # Build artifacts
 dev/shader-sandbox/build/
 build/
+CMakeFiles/
 
 # Eksperimen lokal, tidak di-commit
 dev/scratch/

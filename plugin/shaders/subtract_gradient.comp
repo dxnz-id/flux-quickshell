@@ -1,0 +1,44 @@
+#version 430 core
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0, std140) uniform FluidUniforms {
+    float timestep;
+    float dissipation;
+    float alpha;
+    float r_beta;
+    float center_factor;
+    float stencil_factor;
+} u;
+
+layout(binding = 1) uniform sampler2D linearSampler;
+layout(binding = 2) uniform sampler2D nearestSampler;
+
+layout(binding = 3) uniform sampler2D pressureTex;
+
+layout(binding = 4) uniform sampler2D velocityTex;
+layout(binding = 5, rgba16f) writeonly uniform image2D outTex;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    ivec2 size = textureSize(velocityTex, 0);
+    vec2 samplePos = vec2(pos) / vec2(size);
+
+    float pressure = texelFetch(pressureTex, pos, 0).x;
+
+    float l = textureLodOffset(pressureTex, samplePos, 0.0, ivec2(-1, 0)).x;
+    float r = textureLodOffset(pressureTex, samplePos, 0.0, ivec2(1, 0)).x;
+    float b = textureLodOffset(pressureTex, samplePos, 0.0, ivec2(0, -1)).x;
+    float t = textureLodOffset(pressureTex, samplePos, 0.0, ivec2(0, 1)).x;
+
+    vec2 bc = vec2(1.0);
+    if (pos.x == 0 || pos.x == size.x - 1)
+        bc.x = 0.0;
+    if (pos.y == 0 || pos.y == size.y - 1)
+        bc.y = 0.0;
+
+    vec2 velocity = texelFetch(velocityTex, pos, 0).xy;
+    vec2 newVel = bc * (velocity - 0.5 * vec2(r - l, t - b));
+
+    imageStore(outTex, pos, vec4(newVel, 0.0, 0.0));
+}
