@@ -1,5 +1,12 @@
 #version 440
 
+layout(binding = 0, std140) uniform NoiseParams {
+    vec4 elapsed;
+    vec4 ch0;
+    vec4 ch1;
+    vec4 ch2;
+};
+
 layout(location = 0) out vec4 fragColor;
 
 const float NOISE_MULT = 0.45;
@@ -66,10 +73,18 @@ void main() {
     ivec2 pos = ivec2(gl_FragCoord.xy);
     vec2 texelPos = (vec2(pos) + 0.5) / NS;
 
+    vec4 chData[3] = vec4[](ch0, ch1, ch2);
     vec2 noise = vec2(0.0);
     for (int i = 0; i < 3; i++) {
-        vec2 sc = CH[i].scale * texelPos;
-        vec2 n = makeNoisePair(vec3(sc, 0.0));
+        float scaleOsc = 1.0 + 0.15 * sin(0.01 * elapsed.x * 6.2831853);
+        float s = CH[i].scale * scaleOsc;
+        vec2 sc = s * texelPos;
+        vec2 n1 = makeNoisePair(vec3(sc, chData[i].x));
+        vec2 n = n1;
+        if (chData[i].z > 0.0) {
+            vec2 n2 = makeNoisePair(vec3(sc, chData[i].y));
+            n = mix(n1, n2, chData[i].z);
+        }
         noise += CH[i].mult * n;
     }
 

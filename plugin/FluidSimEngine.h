@@ -114,6 +114,7 @@ private:
     std::unique_ptr<QRhiBuffer> m_noiseUniformBuf;    // NoiseUniforms (multiplier, 16 bytes std140)
     std::unique_ptr<QRhiBuffer> m_noiseChannelBuf;    // NoiseChannel[3] (std430)
     std::unique_ptr<QRhiBuffer> m_pushConstantBuf;    // timestep (16 bytes std140)
+    std::unique_ptr<QRhiBuffer> m_gpuNoiseBuf;        // GpuNoiseParams (64 bytes std140)
 
     // Pending resource upload batches
     QRhiResourceUpdateBatch *m_pendingUploadBatch = nullptr;

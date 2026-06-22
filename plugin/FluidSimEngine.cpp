@@ -159,6 +159,15 @@ struct PushConstants {
 };
 static_assert(sizeof(PushConstants) == 16, "PushConstants must be 16 bytes for std140");
 
+struct GpuNoiseParams {
+    float elapsedTime;
+    float _pad0[3];
+    float ch0_off1, ch0_off2, ch0_blend, _pad1;
+    float ch1_off1, ch1_off2, ch1_blend, _pad2;
+    float ch2_off1, ch2_off2, ch2_blend, _pad3;
+};
+static_assert(sizeof(GpuNoiseParams) == 64, "GpuNoiseParams must be 64 bytes");
+
 struct NoiseChannelBlock {
     float ch0_scale_x;    float ch0_scale_y;    float ch0_off1;    float ch0_off2;
     float ch0_blend;      float ch0_mult;       float _pad0[2];
@@ -227,6 +236,7 @@ void FluidSimEngine::releaseResources()
     m_noiseUniformBuf.reset();
     m_noiseChannelBuf.reset();
     m_pushConstantBuf.reset();
+    m_gpuNoiseBuf.reset();
 
     m_quadVertexBuf.reset();
 
@@ -368,6 +378,7 @@ void FluidSimEngine::createBuffers()
     m_noiseUniformBuf = makeBuf("noiseUniforms", (int)sizeof(NoiseUniforms), QRhiBuffer::UniformBuffer);
     m_noiseChannelBuf = makeBuf("noiseChannels", (int)sizeof(NoiseChannelBlock), QRhiBuffer::UniformBuffer);
     m_pushConstantBuf = makeBuf("pushConstants", (int)sizeof(PushConstants), QRhiBuffer::UniformBuffer);
+    m_gpuNoiseBuf = makeBuf("gpuNoise", (int)sizeof(GpuNoiseParams), QRhiBuffer::UniformBuffer);
 
     float dt = m_fluidTimestep;
     float centerFactor = 1.0f / (m_viscosity * dt);
@@ -488,8 +499,10 @@ void FluidSimEngine::createGraphicsPipelines()
         outPipeline.reset(pp);
     };
 
-    // Noise (procedural, no texture inputs)
-    m_passNoise.srb.reset(buildBinding({ }));
+    // Noise (procedural, reads UBO for animated params, writes to noiseTex)
+    m_passNoise.srb.reset(buildBinding({
+        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, m_gpuNoiseBuf.get()),
+    }));
     makePipeline("pass_noise", m_passNoise.srb.get(), m_rpDescRGBA16F.get(), m_passNoise.pipeline);
 
     // Advection [0] reads vel[0] (linear sampler for smooth backtracking)
@@ -618,14 +631,15 @@ void FluidSimEngine::createDisplayPass()
 
 static constexpr int PASSES_PER_FRAME = 32;
 static constexpr int TOTAL_PHASES =
-    1   // 0: advect forward (vel[vi] → advectionFwd)
-    + 1   // 1: advect reverse (advectionFwd → advectionRev)
-    + 1   // 2: adjust advection (fwd+rev+vel[vi] → vel[1-vi])
-    + 3   // 3-5: diffuse ×3
-    + 1   // 6: inject noise
-    + 1   // 7: divergence
-    + 19  // 8-26: pressure ×19
-    + 1   // 27: subtract gradient
+     1   // 0: GPU noise (writes noiseTex)
+    + 1   // 1: advect forward (vel[vi] → advectionFwd)
+    + 1   // 2: advect reverse (advectionFwd → advectionRev)
+    + 1   // 3: adjust advection (fwd+rev+vel[vi] → vel[1-vi])
+    + 3   // 4-6: diffuse ×3
+    + 1   // 7: inject noise
+    + 1   // 8: divergence
+    + 19  // 9-27: pressure ×19
+    + 1   // 28: subtract gradient
     ;
 
 void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
@@ -649,44 +663,23 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
     int s = m_fluidSize;
     int ns = 2 * m_fluidSize;
 
-    // Upload CPU-generated noise at each frame start
+    // GPU noise generation at frame start
     if (m_stepPhase == 0) {
         updateNoiseChannels(dt);
-        QByteArray noiseData(ns * ns * 8, Qt::Uninitialized);
-        uint16_t *np = reinterpret_cast<uint16_t*>(noiseData.data());
-        for (int y = 0; y < ns; y++) {
-            for (int x = 0; x < ns; x++) {
-                float tu = (float(x) + 0.5f) / float(ns);
-                float tv = (float(y) + 0.5f) / float(ns);
-                float nx = 0, ny = 0;
-                for (int ci = 0; ci < NUM_CHANNELS; ci++) {
-                    auto &c = m_channels[ci];
-                    float sx = c.scale[0] * tu;
-                    float sy = c.scale[1] * tv;
-                    float n1x, n1y;
-                    simplexNoisePair(sx, sy, c.offset_1, n1x, n1y);
-                    if (c.blend_factor > 0) {
-                        float n2x, n2y;
-                        simplexNoisePair(sx, sy, c.offset_2, n2x, n2y);
-                        n1x += c.blend_factor * (n2x - n1x);
-                        n1y += c.blend_factor * (n2y - n1y);
-                    }
-                    nx += c.multiplier * n1x;
-                    ny += c.multiplier * n1y;
-                }
-                nx *= m_noiseMultiplier;
-                ny *= m_noiseMultiplier;
-                int idx = (y * ns + x) * 4;
-                np[idx+0] = f32to16(nx);
-                np[idx+1] = f32to16(ny);
-                np[idx+2] = f32to16(0.0f);
-                np[idx+3] = f32to16(1.0f);
-            }
+        GpuNoiseParams gp;
+        memset(&gp, 0, sizeof(gp));
+        gp.elapsedTime = m_elapsedTime;
+        for (int i = 0; i < NUM_CHANNELS; i++) {
+            float *off1 = (i == 0) ? &gp.ch0_off1 : (i == 1 ? &gp.ch1_off1 : &gp.ch2_off1);
+            float *off2 = (i == 0) ? &gp.ch0_off2 : (i == 1 ? &gp.ch1_off2 : &gp.ch2_off2);
+            float *blend = (i == 0) ? &gp.ch0_blend : (i == 1 ? &gp.ch1_blend : &gp.ch2_blend);
+            *off1 = m_channels[i].offset_1;
+            *off2 = m_channels[i].offset_2;
+            *blend = m_channels[i].blend_factor;
         }
-        auto *noiseUb = m_rhi->nextResourceUpdateBatch();
-        QRhiTextureSubresourceUploadDescription noiseSubDesc(noiseData);
-        noiseUb->uploadTexture(m_noiseTex.get(), QRhiTextureUploadDescription({{0, 0, noiseSubDesc}}));
-        cb->resourceUpdate(noiseUb);
+        auto *ub = m_rhi->nextResourceUpdateBatch();
+        ub->uploadStaticBuffer(m_gpuNoiseBuf.get(), QByteArray((const char*)&gp, sizeof(gp)));
+        drawPass(cb, m_noiseRT.get(), m_passNoise, ns, ns, ub);
     }
 
     int vi = m_velocityIndex;
@@ -695,40 +688,44 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
 
     for (int done = 0; done < PASSES_PER_FRAME && ph < TOTAL_PHASES; done++, ph++) {
         switch (ph) {
-        case 0: // Advect forward — reads vel[vi], writes to advectionFwd
+        case 0: // GPU noise — writes noiseTex
+            drawPass(cb, m_noiseRT.get(), m_passNoise, ns, ns, nullptr);
+            break;
+
+        case 1: // Advect forward — reads vel[vi], writes to advectionFwd
             drawPass(cb, m_advectionFwdRT.get(), m_passAdvection[vi], s, s, nullptr);
             break;
 
-        case 1: // Advect reverse — reads advectionFwd, writes to advectionRev (direction=-1)
+        case 2: // Advect reverse — reads advectionFwd, writes to advectionRev (direction=-1)
             drawPass(cb, m_advectionRevRT.get(), m_passAdvectionRev, s, s, nullptr);
             break;
 
-        case 2: // Adjust advection (MacCormack) — reads fwd+rev+vel[vi], writes to vel[1-vi]
+        case 3: // Adjust advection (MacCormack) — reads fwd+rev+vel[vi], writes to vel[1-vi]
             drawPass(cb, m_velRT[1 - vi].get(), m_passAdjust[vi], s, s, nullptr);
             vi = 1 - vi;
             break;
 
-        case 3: case 4: case 5: // Diffuse ×3 — reads vel[vi]
+        case 4: case 5: case 6: // Diffuse ×3 — reads vel[vi]
             drawPass(cb, m_velRT[1 - vi].get(), m_passDiffuse[vi], s, s, nullptr);
             vi = 1 - vi;
             break;
 
-        case 6: // Inject noise — reads noiseTex + vel[vi]
+        case 7: // Inject noise — reads noiseTex + vel[vi]
             drawPass(cb, m_velRT[1 - vi].get(), m_passInjectNoise[vi], s, s, nullptr);
             vi = 1 - vi;
             break;
 
-        case 7: // Divergence — reads vel[vi], writes to divergenceTex
+        case 8: // Divergence — reads vel[vi], writes to divergenceTex
             drawPass(cb, m_divergenceRT.get(), m_passDivergence[vi], s, s, nullptr);
             break;
 
-        default: // Pressure ×19 (ph 8-26)
-            if (ph >= 8 && ph <= 26) {
+        default: // Pressure ×19 (ph 9-27)
+            if (ph >= 9 && ph <= 27) {
                 drawPass(cb, m_pressureRT[1 - pi].get(), m_passPressure[pi], s, s, nullptr);
                 pi = 1 - pi;
                 break;
             }
-            if (ph == 27) { // Subtract gradient — reads press[pi] + vel[vi]
+            if (ph == 28) { // Subtract gradient — reads press[pi] + vel[vi]
                 drawPass(cb, m_velRT[1 - vi].get(), m_passSubtract[vi][pi], s, s, nullptr);
                 vi = 1 - vi;
                 break;
