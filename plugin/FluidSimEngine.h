@@ -111,8 +111,6 @@ private:
     // Uniform buffers
     std::unique_ptr<QRhiBuffer> m_fluidUniformBuf;   // FluidUniforms (std140, 32 bytes)
     std::unique_ptr<QRhiBuffer> m_directionBuf;       // Direction (float, 16 bytes std140)
-    std::unique_ptr<QRhiBuffer> m_noiseUniformBuf;    // NoiseUniforms (multiplier, 16 bytes std140)
-    std::unique_ptr<QRhiBuffer> m_noiseChannelBuf;    // NoiseChannel[3] (std430)
     std::unique_ptr<QRhiBuffer> m_pushConstantBuf;    // timestep (16 bytes std140)
     std::unique_ptr<QRhiBuffer> m_gpuNoiseBuf;        // GpuNoiseParams (64 bytes std140)
 

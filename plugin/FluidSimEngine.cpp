@@ -10,124 +10,6 @@
 
 #pragma pack(push, 1)
 
-static uint16_t f32to16(float val) {
-    uint32_t u;
-    memcpy(&u, &val, 4);
-    uint16_t s = (u >> 16) & 0x8000;
-    uint32_t abs_u = u & 0x7fffffffu;
-    if (abs_u == 0) return s;
-    if (abs_u > 0x7f800000u) return s | 0x7e00;
-    if (abs_u == 0x7f800000u) return s | 0x7c00;
-    int e = int((u >> 23) & 0xff) - 127 + 15;
-    uint32_t m = (u >> 13) & 0x3ff;
-    if (e <= 0) {
-        if (e < -10) return s;
-        m = ((u & 0x7fffffu) | 0x800000u) >> (13 - e + 1);
-        e = 0;
-    } else if (e >= 31) {
-        e = 31; m = 0;
-    }
-    return uint16_t(s | uint16_t(e << 10) | uint16_t(m & 0x3ff));
-}
-
-// 3D simplex noise — 1:1 port of WGSL generate_noise.comp.wgsl
-struct S3 { float x, y, z; };
-struct S4 { float x, y, z, w; };
-static S3 s3f(float x, float y, float z) { return {x, y, z}; }
-static S4 s4f(float x, float y, float z, float w) { return {x, y, z, w}; }
-static S4 add4(S4 a, S4 b) { return {a.x+b.x, a.y+b.y, a.z+b.z, a.w+b.w}; }
-static S4 add4s(S4 a, float s) { return {a.x+s, a.y+s, a.z+s, a.w+s}; }
-static S4 sub4(S4 a, S4 b) { return {a.x-b.x, a.y-b.y, a.z-b.z, a.w-b.w}; }
-static S4 mul4(S4 a, S4 b) { return {a.x*b.x, a.y*b.y, a.z*b.z, a.w*b.w}; }
-static S4 mul4s(S4 a, float s) { return {a.x*s, a.y*s, a.z*s, a.w*s}; }
-static S4 abs4(S4 v) { return {fabsf(v.x), fabsf(v.y), fabsf(v.z), fabsf(v.w)}; }
-static float dot4(S4 a, S4 b) { return a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w; }
-static S3 min3(S3 a, S3 b) { return {fminf(a.x,b.x), fminf(a.y,b.y), fminf(a.z,b.z)}; }
-static S3 max3(S3 a, S3 b) { return {fmaxf(a.x,b.x), fmaxf(a.y,b.y), fmaxf(a.z,b.z)}; }
-
-static S4 mod289v4(S4 v) {
-    return sub4(v, mul4s({floorf(v.x*(1.f/289.f)), floorf(v.y*(1.f/289.f)),
-                          floorf(v.z*(1.f/289.f)), floorf(v.w*(1.f/289.f))}, 289.f));
-}
-static S4 permutev4(S4 x) { return mod289v4(mul4(add4(mul4s(x, 34.f), {1,1,1,1}), x)); }
-
-static float snoise3D(float vx, float vy, float vz) {
-    const float C1 = 1.f/6.f, C2 = 1.f/3.f;
-    float d = vx + vy + vz;
-    float i0 = floorf(vx + d*C2), i1 = floorf(vy + d*C2), i2 = floorf(vz + d*C2);
-    d = i0 + i1 + i2;
-    float x0x = vx - i0 + d*C1, x0y = vy - i1 + d*C1, x0z = vz - i2 + d*C1;
-
-    S3 g = {x0y < x0x ? 0.f : 1.f, x0z < x0y ? 0.f : 1.f, x0x < x0z ? 0.f : 1.f};
-    S3 l = {1-g.x, 1-g.y, 1-g.z};
-    S3 i1v = min3(g, {l.z, l.x, l.y});
-    S3 i2v = max3(g, {l.z, l.x, l.y});
-
-    float x1x = x0x - i1v.x + C1, x1y = x0y - i1v.y + C1, x1z = x0z - i1v.z + C1;
-    float x2x = x0x - i2v.x + C2, x2y = x0y - i2v.y + C2, x2z = x0z - i2v.z + C2;
-    float x3x = x0x - .5f, x3y = x0y - .5f, x3z = x0z - .5f;
-
-    S4 ii = mod289v4({i0, i1, i2, 0});
-
-    S4 p = add4({0, i1v.z, i2v.z, 1}, s4f(ii.z, ii.z, ii.z, ii.z));
-    p = permutev4(p);
-    p = add4(p, add4(s4f(ii.y, ii.y, ii.y, ii.y), {0, i1v.y, i2v.y, 1}));
-    p = permutev4(p);
-    p = add4(p, add4(s4f(ii.x, ii.x, ii.x, ii.x), {0, i1v.x, i2v.x, 1}));
-    p = permutev4(p);
-
-    S4 j = sub4(p, mul4s({floorf(p.x*(1.f/49.f)), floorf(p.y*(1.f/49.f)),
-                          floorf(p.z*(1.f/49.f)), floorf(p.w*(1.f/49.f))}, 49.f));
-    S4 x_ = {floorf(j.x*(1.f/7.f)), floorf(j.y*(1.f/7.f)), floorf(j.z*(1.f/7.f)), floorf(j.w*(1.f/7.f))};
-    S4 y_ = sub4(j, mul4s(x_, 7.f));
-
-    S4 xx = add4s(mul4s(x_, 2.f/7.f), 0.5f/7.f - 1.f);
-    S4 yy = add4s(mul4s(y_, 2.f/7.f), 0.5f/7.f - 1.f);
-    S4 hh = sub4({1,1,1,1}, add4(abs4(xx), abs4(yy)));
-
-    S4 b0 = {xx.x, xx.y, yy.x, yy.y};
-    S4 b1 = {xx.z, xx.w, yy.z, yy.w};
-    S4 s0 = add4s(mul4s({floorf(b0.x), floorf(b0.y), floorf(b0.z), floorf(b0.w)}, 2.f), 1.f);
-    S4 s1 = add4s(mul4s({floorf(b1.x), floorf(b1.y), floorf(b1.z), floorf(b1.w)}, 2.f), 1.f);
-    S4 sh = {hh.x <= 0.f ? -1.f : 0.f, hh.y <= 0.f ? -1.f : 0.f,
-             hh.z <= 0.f ? -1.f : 0.f, hh.w <= 0.f ? -1.f : 0.f};
-
-    S4 a0 = {b0.x + s0.x*sh.x, b0.z + s0.z*sh.x, b0.y + s0.y*sh.y, b0.w + s0.w*sh.y};
-    S4 a1 = {b1.x + s1.x*sh.z, b1.z + s1.z*sh.z, b1.y + s1.y*sh.w, b1.w + s1.w*sh.w};
-
-    float gx[] = {a0.x, a0.z, a1.x, a1.z};
-    float gy[] = {a0.y, a0.w, a1.y, a1.w};
-    float gz[] = {hh.x, hh.y, hh.z, hh.w};
-    float nrm[4];
-    for (int i = 0; i < 4; i++) nrm[i] = 1.f / sqrtf(gx[i]*gx[i] + gy[i]*gy[i] + gz[i]*gz[i]);
-    for (int i = 0; i < 4; i++) { gx[i] *= nrm[i]; gy[i] *= nrm[i]; gz[i] *= nrm[i]; }
-
-    float xd[] = {x0x, x1x, x2x, x3x};
-    float yd[] = {x0y, x1y, x2y, x3y};
-    float zd[] = {x0z, x1z, x2z, x3z};
-    S4 mm = {
-        fmaxf(.6f - (x0x*x0x + x0y*x0y + x0z*x0z), 0.f),
-        fmaxf(.6f - (x1x*x1x + x1y*x1y + x1z*x1z), 0.f),
-        fmaxf(.6f - (x2x*x2x + x2y*x2y + x2z*x2z), 0.f),
-        fmaxf(.6f - (x3x*x3x + x3y*x3y + x3z*x3z), 0.f),
-    };
-    mm.x = mm.x*mm.x*mm.x*mm.x;
-    mm.y = mm.y*mm.y*mm.y*mm.y;
-    mm.z = mm.z*mm.z*mm.z*mm.z;
-    mm.w = mm.w*mm.w*mm.w*mm.w;
-
-    float px = xd[0]*gx[0] + yd[0]*gy[0] + zd[0]*gz[0];
-    float py = xd[1]*gx[1] + yd[1]*gy[1] + zd[1]*gz[1];
-    float pz = xd[2]*gx[2] + yd[2]*gy[2] + zd[2]*gz[2];
-    float pw = xd[3]*gx[3] + yd[3]*gy[3] + zd[3]*gz[3];
-    return 42.f * (mm.x*px + mm.y*py + mm.z*pz + mm.w*pw);
-}
-
-static void simplexNoisePair(float vx, float vy, float vz, float &ox, float &oy) {
-    ox = snoise3D(vx, vy, vz);
-    oy = snoise3D(vx + 8.f, vy - 8.f, vz);
-}
-
 #define TAU 6.283185307179586f
 
 struct FluidUniforms {
@@ -146,13 +28,6 @@ struct Direction {
 };
 static_assert(sizeof(Direction) == 16, "Direction must be 16 bytes for std140");
 
-struct NoiseUniforms {
-    float multiplier;
-    float noiseSize;
-    float _pad[2];
-};
-static_assert(sizeof(NoiseUniforms) == 16, "NoiseUniforms must be 16 bytes for std140");
-
 struct PushConstants {
     float timestep;
     float _pad[3];
@@ -167,16 +42,6 @@ struct GpuNoiseParams {
     float ch2_off1, ch2_off2, ch2_blend, _pad3;
 };
 static_assert(sizeof(GpuNoiseParams) == 64, "GpuNoiseParams must be 64 bytes");
-
-struct NoiseChannelBlock {
-    float ch0_scale_x;    float ch0_scale_y;    float ch0_off1;    float ch0_off2;
-    float ch0_blend;      float ch0_mult;       float _pad0[2];
-    float ch1_scale_x;    float ch1_scale_y;    float ch1_off1;    float ch1_off2;
-    float ch1_blend;      float ch1_mult;       float _pad1[2];
-    float ch2_scale_x;    float ch2_scale_y;    float ch2_off1;    float ch2_off2;
-    float ch2_blend;      float ch2_mult;       float _pad2[2];
-};
-static_assert(sizeof(NoiseChannelBlock) == 96, "NoiseChannelBlock must be 96 bytes");
 #pragma pack(pop)
 
 struct ChannelCfg {
@@ -233,8 +98,6 @@ void FluidSimEngine::releaseResources()
 
     m_fluidUniformBuf.reset();
     m_directionBuf.reset();
-    m_noiseUniformBuf.reset();
-    m_noiseChannelBuf.reset();
     m_pushConstantBuf.reset();
     m_gpuNoiseBuf.reset();
 
@@ -375,8 +238,6 @@ void FluidSimEngine::createBuffers()
 
     m_fluidUniformBuf = makeBuf("fluidUniforms", (int)sizeof(FluidUniforms), QRhiBuffer::UniformBuffer);
     m_directionBuf = makeBuf("direction", (int)sizeof(Direction), QRhiBuffer::UniformBuffer);
-    m_noiseUniformBuf = makeBuf("noiseUniforms", (int)sizeof(NoiseUniforms), QRhiBuffer::UniformBuffer);
-    m_noiseChannelBuf = makeBuf("noiseChannels", (int)sizeof(NoiseChannelBlock), QRhiBuffer::UniformBuffer);
     m_pushConstantBuf = makeBuf("pushConstants", (int)sizeof(PushConstants), QRhiBuffer::UniformBuffer);
     m_gpuNoiseBuf = makeBuf("gpuNoise", (int)sizeof(GpuNoiseParams), QRhiBuffer::UniformBuffer);
 
@@ -387,13 +248,11 @@ void FluidSimEngine::createBuffers()
     fprintf(stderr, "  params: center=%.6f stencil=%.6f\n", centerFactor, stencilFactor);
     FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor };
     Direction dir = { 1.0f, {} };
-    NoiseUniforms nu = { m_noiseMultiplier, float(2 * m_fluidSize), {} };
     PushConstants pc = { dt, {} };
 
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_fluidUniformBuf.get(), QByteArray((const char*)&fu, sizeof(fu)));
     ub->uploadStaticBuffer(m_directionBuf.get(), QByteArray((const char*)&dir, sizeof(dir)));
-    ub->uploadStaticBuffer(m_noiseUniformBuf.get(), QByteArray((const char*)&nu, sizeof(nu)));
     ub->uploadStaticBuffer(m_pushConstantBuf.get(), QByteArray((const char*)&pc, sizeof(pc)));
     ub->release();
 }
@@ -448,8 +307,6 @@ void FluidSimEngine::createGraphicsPipelines()
     QRhiSampler *linear = m_linearSampler.get();
     QRhiBuffer *fluidUBuf = m_fluidUniformBuf.get();
     QRhiBuffer *dirBuf = m_directionBuf.get();
-    QRhiBuffer *noiseUBuf = m_noiseUniformBuf.get();
-    QRhiBuffer *noiseChBuf = m_noiseChannelBuf.get();
     QRhiBuffer *pushBuf = m_pushConstantBuf.get();
 
     QShader quadVs = FluidSimShaders::loadShader("fullscreen_quad");
