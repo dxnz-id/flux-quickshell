@@ -672,18 +672,18 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
                     m_velocityTex[m_velocityIndex].get(), m_nearestSampler.get()),
             }));
             break;
-        case 1: // Fluid — raw velocity
-            pipeline = m_passDebug.pipeline.get();
-            srb.reset(buildBinding({
-                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
-                    m_velocityTex[m_velocityIndex].get(), m_nearestSampler.get()),
-            }));
-            break;
-        case 2: // Noise — raw noise texture
+        case 1: // Noise — raw noise texture
             pipeline = m_passDebug.pipeline.get();
             srb.reset(buildBinding({
                 QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
                     m_noiseTex.get(), m_nearestSampler.get()),
+            }));
+            break;
+        case 2: // Fluid — raw velocity
+            pipeline = m_passDebug.pipeline.get();
+            srb.reset(buildBinding({
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                    m_velocityTex[m_velocityIndex].get(), m_nearestSampler.get()),
             }));
             break;
         case 3: // Pressure
