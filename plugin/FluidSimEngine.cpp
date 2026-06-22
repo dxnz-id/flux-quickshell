@@ -299,11 +299,10 @@ void FluidSimEngine::createBuffers()
     m_pushConstantBuf = makeBuf("pushConstants", (int)sizeof(PushConstants), QRhiBuffer::UniformBuffer);
 
     float dt = m_fluidTimestep;
-    float alpha = m_viscosity * dt * m_fluidSize * m_fluidSize;
-    float centerFactor = 1.0f / (1.0f + 4.0f * alpha);
-    float stencilFactor = alpha / (1.0f + 4.0f * alpha);
+    float centerFactor = 1.0f / (m_viscosity * dt);
+    float stencilFactor = 1.0f / (4.0f + centerFactor);
     fprintf(stderr, "  params: dt=%.6f viscosity=%.1f size=%d\n", dt, m_viscosity, m_fluidSize);
-    fprintf(stderr, "  params: alpha=%.6f center=%.6f stencil=%.6f\n", alpha, centerFactor, stencilFactor);
+    fprintf(stderr, "  params: center=%.6f stencil=%.6f\n", centerFactor, stencilFactor);
     FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor };
     Direction dir = { 1.0f, {} };
     NoiseUniforms nu = { m_noiseMultiplier, float(2 * m_fluidSize), {} };
@@ -421,25 +420,25 @@ void FluidSimEngine::createGraphicsPipelines()
     m_passNoise.srb.reset(buildBinding({ }));
     makePipeline("pass_noise", m_passNoise.srb.get(), m_rpDescRGBA16F.get(), m_passNoise.pipeline);
 
-    // Advection [0] reads vel[0]
+    // Advection [0] reads vel[0] (linear sampler for smooth backtracking)
     m_passAdvection[0].srb.reset(buildBinding({
-        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[0].get(), nearest),
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[0].get(), linear),
     }));
     makePipeline("pass_advect", m_passAdvection[0].srb.get(), m_rpDescRGBA16F.get(), m_passAdvection[0].pipeline);
 
     // Advection [1] reads vel[1]
     m_passAdvection[1].srb.reset(buildBinding({
-        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[1].get(), nearest),
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[1].get(), linear),
     }));
     makePipeline("pass_advect", m_passAdvection[1].srb.get(), m_rpDescRGBA16F.get(), m_passAdvection[1].pipeline);
 
-    // Advection reverse (reads advectionFwd)
+    // Advection reverse (reads advectionFwd, linear sampler, direction=-1)
     m_passAdvectionRev.srb.reset(buildBinding({
-        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_advectionFwdTex.get(), nearest),
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_advectionFwdTex.get(), linear),
     }));
-    makePipeline("pass_advect", m_passAdvectionRev.srb.get(), m_rpDescRGBA16F.get(), m_passAdvectionRev.pipeline);
+    makePipeline("pass_advect_rev", m_passAdvectionRev.srb.get(), m_rpDescRGBA16F.get(), m_passAdvectionRev.pipeline);
 
-    // Adjust [vi] reads forwardTex[0], reverseTex[0], vel[vi]
+    // Adjust [vi] reads forwardTex, reverseTex, vel[vi] (nearest sampler for texelFetch)
     for (int i = 0; i < 2; i++) {
         m_passAdjust[i].srb.reset(buildBinding({
             QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_advectionFwdTex.get(), nearest),
@@ -525,11 +524,14 @@ void FluidSimEngine::createDisplayPipeline(QRhi *rhi)
 
 static constexpr int PASSES_PER_FRAME = 32;
 static constexpr int TOTAL_PHASES =
-    3   // 0-2: diffuse ×3
-    + 1   // 3: inject noise
-    + 1   // 4: divergence
-    + 19  // 5-23: pressure ×19
-    + 1   // 24: subtract gradient
+    1   // 0: advect forward (vel[vi] → advectionFwd)
+    + 1   // 1: advect reverse (advectionFwd → advectionRev)
+    + 1   // 2: adjust advection (fwd+rev+vel[vi] → vel[1-vi])
+    + 3   // 3-5: diffuse ×3
+    + 1   // 6: inject noise
+    + 1   // 7: divergence
+    + 19  // 8-26: pressure ×19
+    + 1   // 27: subtract gradient
     ;
 
 void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
@@ -584,27 +586,40 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
 
     for (int done = 0; done < PASSES_PER_FRAME && ph < TOTAL_PHASES; done++, ph++) {
         switch (ph) {
-        case 0: case 1: case 2: // Diffuse ×3 — reads vel[vi]
+        case 0: // Advect forward — reads vel[vi], writes to advectionFwd
+            drawPass(cb, m_advectionFwdRT.get(), m_passAdvection[vi], s, s, nullptr);
+            break;
+
+        case 1: // Advect reverse — reads advectionFwd, writes to advectionRev (direction=-1)
+            drawPass(cb, m_advectionRevRT.get(), m_passAdvectionRev, s, s, nullptr);
+            break;
+
+        case 2: // Adjust advection (MacCormack) — reads fwd+rev+vel[vi], writes to vel[1-vi]
+            drawPass(cb, m_velRT[1 - vi].get(), m_passAdjust[vi], s, s, nullptr);
+            vi = 1 - vi;
+            break;
+
+        case 3: case 4: case 5: // Diffuse ×3 — reads vel[vi]
             drawPass(cb, m_velRT[1 - vi].get(), m_passDiffuse[vi], s, s, nullptr);
             vi = 1 - vi;
             break;
 
-        case 3: // Inject noise — reads vel[vi], adds noise
+        case 6: // Inject noise — reads noiseTex + vel[vi]
             drawPass(cb, m_velRT[1 - vi].get(), m_passInjectNoise[vi], s, s, nullptr);
             vi = 1 - vi;
             break;
 
-        case 4: // Divergence — reads vel[vi]
+        case 7: // Divergence — reads vel[vi], writes to divergenceTex
             drawPass(cb, m_divergenceRT.get(), m_passDivergence[vi], s, s, nullptr);
             break;
 
-        default: // Pressure ×19 (ph 5-23)
-            if (ph >= 5 && ph <= 23) {
+        default: // Pressure ×19 (ph 8-26)
+            if (ph >= 8 && ph <= 26) {
                 drawPass(cb, m_pressureRT[1 - pi].get(), m_passPressure[pi], s, s, nullptr);
                 pi = 1 - pi;
                 break;
             }
-            if (ph == 24) { // Subtract gradient — reads press[pi] + vel[vi]
+            if (ph == 27) { // Subtract gradient — reads press[pi] + vel[vi]
                 drawPass(cb, m_velRT[1 - vi].get(), m_passSubtract[vi][pi], s, s, nullptr);
                 vi = 1 - vi;
                 break;

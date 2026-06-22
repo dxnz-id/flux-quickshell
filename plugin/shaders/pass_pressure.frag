@@ -1,7 +1,7 @@
 #version 440
 
-layout(binding = 1) uniform sampler2D divergenceTex;
-layout(binding = 2) uniform sampler2D pressureTex;
+layout(binding = 0) uniform sampler2D divergenceTex;
+layout(binding = 1) uniform sampler2D pressureTex;
 
 layout(location = 0) out vec4 fragColor;
 
