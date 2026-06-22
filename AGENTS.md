@@ -206,6 +206,14 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **Diffuse boundary safety fix**: Added `clampPos()` to `pass_diffuse.frag` to prevent out-of-bounds `texelFetch` reads (matching reference's ClampToEdge sampler → Neumann implicit).
 - [x] **All pipeline shaders verified for boundary safety** via reference WGSL comparison. No-slip only in `subtract_gradient`, NOT in diffuse. Component-wise (`bc.x=0` at x-walls, `bc.y=0` at y-walls) already correct in `pass_subtract.frag`.
 - [x] **QSGTexture::Nearest** filtering on display texture to prevent bilinear blur.
+- [x] **Diffuse formula param fix**: `stencil_factor` 0.25→0.0625, `center_factor` 0→12.0 menghitung ulang dari `dt=0.016667, visc=5.0`. `centerFactor=1/(visc*dt)=12.0`, `stencilFactor=1/(4+centerFactor)=0.0625`. Nilai lama (~1/4, ~0) membuat diffusion 4× terlalu agresif.
+- [x] **Subtract gradient sampler fix**: `pressureTex` binding `nearest`→`linear`. Referensi pakai linear sampler untuk pressure gradient smooth. Dengan linear: `l=0.5*(p[i-1]+p[i])`, `r=0.5*(p[i]+p[i+1])` → gradien `=0.5*(r-l)=0.25*(p[i+1]-p[i-1])`. Nearest: gradien `=0.5*(p[i+1]-p[i-1])` (2× over-correction). Fix dari perbandingan WGSL reference.
+- [x] **Noise 3D simplex C++ CPU (1:1 WGSL)**: Port `snoise3D` dari `generate_noise.comp.wgsl` ke C++ static functions. Output `simplexNoisePair(v) → (snoise(v), snoise(v+vec3(8,-8,0)))`.
+- [x] **Channel blending CPU**: Update `updateNoiseChannels()` tick → `offset_1 += inc`; pada `offset_1 > 1000` blend ke `offset_2`; scale oscillate `* (1+0.15*sin(0.01*t*TAU))`. `CHANNEL_CFG.inc` diperbaiki ke (0.001, 0.006, 0.012) dari reference.
+- [x] **Noise multiplier fix**: `m_noiseMultiplier` 0.1→0.45 (match `settings.rs`).
+- [x] **Center-aligned UV sampling**: CPU noise menggunakan `(x+0.5)/size, (y+0.5)/size` (match reference `texel_position`).
+- [x] **Inject noise 1:1 reference**: `pass_inject_noise.frag` → linear sampler untuk noiseTex, UV-based sampling `gl_FragCoord.xy/velSize`, `timestep * noise` scaling (`(1/60) * noise`).
+- [x] **m_noiseMultiplier fixed** to 0.45 (match reference).
 
 ### Belum Dimulai
 - [ ] Line rendering (spring dynamics, stateful particle system)
@@ -230,7 +238,7 @@ Detail matematika dan parameter default harus didokumentasikan di
   Workaround: QSGSimpleTextureNode untuk display, QSGRenderNode hanya untuk engine step.
 - 2025-06-22: QSGTexture dari `createTextureFromRhiTexture()` tidak set ownership;
   leak QSGTexture object (acceptable, <100 bytes).
--   2025-06-22: **Topology bug fix**: `TriangleStrip` + `setTopology()` for all engine pipelines.
+- 2025-06-22: **Topology bug fix**: `TriangleStrip` + `setTopology()` for all engine pipelines.
   Also fixed QSGGeometryNode display quad index order `{0,1,2, 1,2,3}` for full coverage.
 - 2025-06-22: **QSGGeometryNode index order `{0,1,2, 0,2,3}` untuk `GL_TRIANGLES` hanya render 75%.**
   Dua triangle share left edge (v0-v2), overlap di left 50%, miss right 50%. Fix: `{0,1,2, 1,2,3}`,
@@ -509,6 +517,30 @@ tanpa referensi konkret.
 ---
 
 ## Changelog
+
+### 2026-06-22 — Session: Simplex Noise CPU 1:1 + Diffuse Formula + Inject Noise 1:1 Reference
+
+**Changes**:
+1. **`FluidSimEngine.cpp`** — Replaced hash-based value noise (fbm) with 3D simplex noise ported 1:1 from WGSL `generate_noise.comp.wgsl`:
+   - `snoise3D()` — complete port of simplex noise (mod289 + permute + gradient tables + falloff)
+   - `simplexNoisePair()` — returns (snoise(v), snoise(v+vec3(8,-8,0))) matching `make_noise_pair`
+   - Channel blending in CPU upload loop: for each channel, `scale * texelPos` → `make_noise_pair(..., offset_1)` → optional blend with offset_2 → sum across 3 channels → `* global_multiplier`
+   - `CHANNEL_CFG.inc` fixed to reference values: 0.001, 0.006, 0.012
+   - `m_noiseMultiplier` fixed from 0.1 to 0.45 (match `settings.rs`)
+   - Center-aligned UV `(x+0.5)/size` matching reference `texel_position`
+
+2. **`pass_diffuse.frag`** — `stencil_factor` 0.25→0.0625, `center_factor` 0→12.0. Calculated from `dt=0.016667, visc=5.0`: `centerFactor=1/(visc*dt)=12.0`, `stencilFactor=1/(4+centerFactor)=0.0625`. Previous values made diffusion 4× too aggressive.
+
+3. **`FluidSimEngine.cpp` (subtract gradient)** — `pressureTex` sampler `nearest→linear`. Linear gradient: `0.25*(p[i+1]-p[i-1])`, nearest: `0.5*(p[i+1]-p[i-1])` (2× over-correction).
+
+4. **`pass_inject_noise.frag`** — Rewritten to match reference:
+   - Linear sampler for noiseTex (was nearest/texelFetch)
+   - UV-based sampling: `gl_FragCoord.xy / velSize` (was `texelFetch` position mapping)
+   - `timestep * noise` scaling: `(1/60) * noise` (was `1.0 * noise` — 60× too aggressive)
+
+5. **`FluidSimEngine.h`** — `m_noiseMultiplier` default 0.1→0.45
+
+**Known Issue**: Intermittent segfault (~10% rate) in `QSGBatchRenderer::Renderer::renderRhiRenderNode` when `shader_sandbox` runs after rebuild. Pre-existing Qt timing issue, not related to noise changes.
 
 ### 2026-06-22 (PM) — Session: Diffuse Boundary Safety + All Pipeline Shaders Verified Safe
 

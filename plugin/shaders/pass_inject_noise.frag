@@ -8,14 +8,11 @@ layout(location = 0) out vec4 fragColor;
 void main() {
     ivec2 pos = ivec2(gl_FragCoord.xy);
     ivec2 velSize = textureSize(velocityTex, 0);
-    ivec2 noiseSize = textureSize(noiseTex, 0);
+    vec2 uv = gl_FragCoord.xy / vec2(velSize);
 
     vec2 velocity = texelFetch(velocityTex, pos, 0).xy;
+    vec2 noise = texture(noiseTex, uv).xy;
 
-    ivec2 noisePos = ivec2(pos.x * noiseSize.x / velSize.x, pos.y);
-    vec2 noise = texelFetch(noiseTex, noisePos, 0).xy;
-
-    float velocityScale = 1.0f;
-    vec2 newVel = velocity + velocityScale * noise;
+    vec2 newVel = velocity + (1.0 / 60.0) * noise;
     fragColor = vec4(newVel, 0.0, 1.0);
 }

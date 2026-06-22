@@ -1,15 +1,16 @@
 #version 440
 
-layout(binding = 0, std140) uniform NoiseUniformsBlock {
-    float multiplier;
-    float noiseSize;
-} nu;
-
-layout(binding = 1, std140) uniform NoiseChannelBlock {
-    vec4 data[6];
-} nc;
-
 layout(location = 0) out vec4 fragColor;
+
+const float NOISE_MULT = 0.45;
+const float NS = 256.0;
+
+struct Chan { float scale, inc, mult; };
+const Chan CH[3] = Chan[](
+    Chan(2.8,  0.001, 1.0),
+    Chan(15.0, 0.006, 0.7),
+    Chan(30.0, 0.012, 0.5)
+);
 
 float mod289(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -63,21 +64,14 @@ vec2 makeNoisePair(vec3 params) {
 
 void main() {
     ivec2 pos = ivec2(gl_FragCoord.xy);
-    vec2 texelPos = (vec2(pos) + 0.5) / nu.noiseSize;
+    vec2 texelPos = (vec2(pos) + 0.5) / NS;
 
     vec2 noise = vec2(0.0);
     for (int i = 0; i < 3; i++) {
-        vec4 d0 = nc.data[i * 2];
-        vec4 d1 = nc.data[i * 2 + 1];
-        vec2 sc = d0.xy * texelPos;
-        vec2 noise1 = makeNoisePair(vec3(sc, d0.z));
-        vec2 n = noise1;
-        if (d1.x > 0.0) {
-            vec2 noise2 = makeNoisePair(vec3(sc, d0.w));
-            n = mix(noise1, noise2, d1.x);
-        }
-        noise += d1.y * n;
+        vec2 sc = CH[i].scale * texelPos;
+        vec2 n = makeNoisePair(vec3(sc, 0.0));
+        noise += CH[i].mult * n;
     }
 
-    fragColor = vec4(noise * nu.multiplier, 0.0, 1.0);
+    fragColor = vec4(noise * NOISE_MULT, 0.0, 1.0);
 }
