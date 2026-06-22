@@ -203,6 +203,9 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **Fixed index order in QSGGeometryNode display quad**: `{0,1,2, 1,2,3}` (bukan `{0,1,2, 0,2,3}`) untuk `GL_TRIANGLES`. Indeks `{0,2,3}` kedua membuat kedua triangle share LEFT EDGE (v0-v2), overlap di left half, miss right half → coverage 75%. Indeks `{1,2,3}` membuat mereka share diagonal v1-v2, form solid quad → coverage 100%.
 - [x] **100% window coverage verified** via grim capture + ImageMagick quadrant analysis (mean.g 0.9997+ di semua quadrant dengan solid green test shader)
 - [x] **Debug mode system**: 5 mode display (Normal/Fluid/Noise/Pressure/Divergence) dengan `display_debug.frag` (bias decode + contrast 2.0, match referensi). Display texture 256×256 RGBA8. Mode switching via `FluidSimItem.debugMode` property + 5 tombol QML.
+- [x] **Diffuse boundary safety fix**: Added `clampPos()` to `pass_diffuse.frag` to prevent out-of-bounds `texelFetch` reads (matching reference's ClampToEdge sampler → Neumann implicit).
+- [x] **All pipeline shaders verified for boundary safety** via reference WGSL comparison. No-slip only in `subtract_gradient`, NOT in diffuse. Component-wise (`bc.x=0` at x-walls, `bc.y=0` at y-walls) already correct in `pass_subtract.frag`.
+- [x] **QSGTexture::Nearest** filtering on display texture to prevent bilinear blur.
 
 ### Belum Dimulai
 - [ ] Line rendering (spring dynamics, stateful particle system)
@@ -232,6 +235,13 @@ Detail matematika dan parameter default harus didokumentasikan di
 - 2025-06-22: **QSGGeometryNode index order `{0,1,2, 0,2,3}` untuk `GL_TRIANGLES` hanya render 75%.**
   Dua triangle share left edge (v0-v2), overlap di left 50%, miss right 50%. Fix: `{0,1,2, 1,2,3}`,
   dua triangle share diagonal v1-v2, coverage 100%. Ditemukan via ImageMagick quadrant analysis.
+- 2025-06-22: **Diffuse boundary safety — bare `texelFetch(tex, pos+offset, 0)` tanpa clamp pada x=0 dengan offset=-1**
+  membaca dari address invalid → garbage memory → simulation blow-up. Fix: `clampPos()` matching reference's
+  `ClampToEdge` sampler. Shader lain diverifikasi aman (pakai `textureLodOffset` atau `texture()`).
+- 2025-06-22: **No-slip boundary HANYA di `subtract_gradient` (projection step)**, BUKAN di diffuse.
+  Diffuse pakai Neumann implicit (clamp sampler → du/dn=0). No-slip di `subtract_gradient` bersifat
+  **component-wise**: bc.x=0 di x-edges (zero x-velocity), bc.y=0 di y-edges (zero y-velocity).
+  `pass_subtract.frag` sudah benar sejak awal.
 
 ---
 
@@ -499,6 +509,31 @@ tanpa referensi konkret.
 ---
 
 ## Changelog
+
+### 2026-06-22 (PM) — Session: Diffuse Boundary Safety + All Pipeline Shaders Verified Safe
+
+**Changes**:
+1. **`pass_diffuse.frag`** — Added explicit `clampPos()` for `texelFetch` boundary safety.
+   - Bare `texelFetch(tex, pos+offset, 0)` at x=0 with offset=-1 reads from invalid address → garbage memory → simulation blow-up.
+   - Fix: `clampPos()` clamps to `[0, size-1]`, matching reference's `ClampToEdge` sampler behavior.
+   - Matches reference: diffuse pass uses `textureSampleLevel` with `nearest_sampler` (ClampToEdge) → neighbor = self at walls → Neumann implicit (du/dn=0).
+2. **Verified all shaders for boundary safety**:
+   - `pass_divergence.frag` — **FIXED** prev session: `clampPos()` for offscreen reads.
+   - `pass_pressure.frag` — **SAFE**: uses `textureLodOffset` (ClampToEdge inherent).
+   - `pass_subtract.frag` — **SAFE**: uses `textureLodOffset` + component-wise no-slip BC (`bc.x=0` at x-edges, `bc.y=0` at y-edges), matching reference.
+   - `pass_inject_noise.frag` — **SAFE**: pure volume operation, no edge reads.
+   - `pass_advect.frag` / `pass_advect_rev.frag` / `pass_adjust.frag` — **SAFE**: use `texture()` (ClampToEdge) or `textureLod()`.
+3. **Reference WGSL boundary condition analysis**:
+   - No-slip is ONLY applied in `subtract_gradient` (projection step), NOT in diffuse.
+   - Diffuse pass uses Jacobi iteration with ClampToEdge sampler → Neumann implicit (du/dn=0) at boundaries.
+   - No-slip in `subtract_gradient` is **component-wise**: only the velocity component NORMAL to the wall is zeroed. Our `pass_subtract.frag` already implements this correctly.
+   - `inject_noise` applies no boundary conditions (pure volume operation).
+4. **Previous fixes this session (carried forward)**:
+   - `QSGTexture::Nearest` filtering on display texture to prevent bilinear blur.
+   - UV clamping fix in display shaders (`texelFetch` with explicit `dstPos * srcSize / DISPLAY_SIZE`).
+   - QSGGeometryNode index order `{0,1,2, 1,2,3}` for 100% coverage.
+
+**Metodologi**: Reference WGSL diff (`../flux-reference/flux/shader/`) → boundary check per shader → fix only unsafe shaders.
 
 ### 2026-06-22 — Session: C++ QRhi Plugin Finalized Display via QSGSimpleTextureNode
 

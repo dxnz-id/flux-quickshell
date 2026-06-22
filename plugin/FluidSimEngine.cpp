@@ -483,11 +483,11 @@ void FluidSimEngine::createGraphicsPipelines()
         makePipeline("pass_pressure", m_passPressure[i].srb.get(), m_rpDescR32F.get(), m_passPressure[i].pipeline);
     }
 
-    // Subtract [vi][pi] reads pressureTex[pi] + vel[vi]
+    // Subtract [vi][pi] reads pressureTex[pi] (linear for smooth gradient) + vel[vi]
     for (int vi = 0; vi < 2; vi++) {
         for (int pi = 0; pi < 2; pi++) {
             m_passSubtract[vi][pi].srb.reset(buildBinding({
-                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_pressureTex[pi].get(), nearest),
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage, m_pressureTex[pi].get(), linear),
                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_velocityTex[vi].get(), nearest),
             }));
             makePipeline("pass_subtract", m_passSubtract[vi][pi].srb.get(), m_rpDescRGBA16F.get(), m_passSubtract[vi][pi].pipeline);

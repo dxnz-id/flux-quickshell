@@ -148,6 +148,7 @@ QSGGeometryNode *FluidSimItem::buildDisplayNode()
     auto *mat = new QSGOpaqueTextureMaterial();
     if (m_engine->isInitialized() && m_engine->displayTex()) {
         auto *tex = window()->createTextureFromRhiTexture(m_engine->displayTex(), {});
+        tex->setFiltering(QSGTexture::Nearest);
         mat->setTexture(tex);
     }
 
