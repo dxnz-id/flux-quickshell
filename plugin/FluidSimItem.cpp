@@ -1,5 +1,6 @@
 #include "FluidSimItem.h"
 #include "FluidSimEngine.h"
+#include "FluidSimShaders.h"
 #include <QQuickWindow>
 #include <QTimer>
 
@@ -136,6 +137,53 @@ QRectF FluidDisplayNode::rect() const
     return m_displayRect;
 }
 
+void FluidDisplayNode::ensurePipeline(QRhiRenderTarget *rt)
+{
+    QRhiRenderPassDescriptor *rp = rt->renderPassDescriptor();
+    if (!rp)
+        return;
+
+    // Recreate pipeline if render target size changed (RP desc might have changed)
+    bool sizeChanged = m_lastRtWidth != rt->pixelSize().width() ||
+                       m_lastRtHeight != rt->pixelSize().height();
+    if (m_displayPipeline && m_rp == rp && !sizeChanged)
+        return;
+
+    m_rp = rp;
+
+    QShader vs = FluidSimShaders::loadShader("display_vert");
+    QShader fs = FluidSimShaders::loadShader("display_frag");
+    if (!vs.isValid() || !fs.isValid())
+        return;
+
+    auto *pp = m_rhi->newGraphicsPipeline();
+    pp->setShaderStages({
+        { QRhiShaderStage::Vertex, vs },
+        { QRhiShaderStage::Fragment, fs }
+    });
+    pp->setRenderPassDescriptor(rp);
+    pp->setShaderResourceBindings(m_srb.get());
+
+    QRhiVertexInputLayout inputLayout;
+    inputLayout.setBindings({
+        QRhiVertexInputBinding(4 * sizeof(float))
+    });
+    inputLayout.setAttributes({
+        QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),
+        QRhiVertexInputAttribute(1, 0, QRhiVertexInputAttribute::Float2, 2 * sizeof(float)),
+    });
+    pp->setVertexInputLayout(inputLayout);
+
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = false;
+    pp->setTargetBlends({ blend });
+    pp->create();
+
+    m_displayPipeline.reset(pp);
+    m_lastRtWidth = rt->pixelSize().width();
+    m_lastRtHeight = rt->pixelSize().height();
+}
+
 void FluidDisplayNode::prepare()
 {
     if (!m_engine || !m_rhi)
@@ -161,24 +209,25 @@ void FluidDisplayNode::prepare()
 
 void FluidDisplayNode::render(const RenderState *state)
 {
+    Q_UNUSED(state)
     if (!m_engine || !m_rhi || !m_srb)
         return;
 
     QRhiCommandBuffer *cb = commandBuffer();
-    QRhiGraphicsPipeline *pipeline = m_engine->displayPipeline();
+    QRhiRenderTarget *rt = renderTarget();
     QRhiBuffer *vBuf = m_engine->displayVertexBuffer();
 
-    if (!pipeline || !vBuf || !cb)
+    if (!cb || !rt || !vBuf)
         return;
 
-    QRhiRenderTarget *rt = renderTarget();
-    if (!rt)
+    ensurePipeline(rt);
+    if (!m_displayPipeline)
         return;
 
     const QSize size = rt->pixelSize();
-    QRhiCommandBuffer::VertexInput vi(vBuf, 0);
 
-    cb->setGraphicsPipeline(pipeline);
+    QRhiCommandBuffer::VertexInput vi(vBuf, 0);
+    cb->setGraphicsPipeline(m_displayPipeline.get());
     cb->setShaderResources(m_srb.get());
     cb->setViewport(QRhiViewport(0, 0, size.width(), size.height()));
     cb->setVertexInput(0, 1, &vi);
@@ -188,4 +237,6 @@ void FluidDisplayNode::render(const RenderState *state)
 void FluidDisplayNode::releaseResources()
 {
     m_srb.reset();
+    m_displayPipeline.reset();
+    m_rp = nullptr;
 }

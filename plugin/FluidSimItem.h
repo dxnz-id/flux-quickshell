@@ -2,6 +2,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSGRenderNode>
+#include <QtGui/rhi/qrhi.h>
 #include <QtGui/private/qrhi_p.h>
 #include <QElapsedTimer>
 #include <memory>
@@ -67,8 +68,14 @@ public:
     float m_dt = 0.016f;
 
 private:
+    void ensurePipeline(QRhiRenderTarget *rt);
+
     FluidSimEngine *m_engine;
     QRhi *m_rhi;
     std::unique_ptr<QRhiShaderResourceBindings> m_srb;
+    std::unique_ptr<QRhiGraphicsPipeline> m_displayPipeline;
+    QRhiRenderPassDescriptor *m_rp = nullptr;
     QRectF m_displayRect;
+    int m_lastRtWidth = 0;
+    int m_lastRtHeight = 0;
 };

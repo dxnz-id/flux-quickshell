@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <memory>
+#include <QtGui/rhi/qrhi.h>
 #include <QtGui/private/qrhi_p.h>
 
 class FluidSimEngine : public QObject {
