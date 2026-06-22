@@ -1,8 +1,10 @@
-import QtQuick
-import FluidSim
+import FluidSim 1.0
+import QtQuick 2.15
 
 Rectangle {
-    width: 600; height: 600; color: "#222"
+    width: 900
+    height: 700
+    color: "#222"
 
     FluidSimItem {
         id: sim
@@ -12,8 +14,9 @@ Rectangle {
     }
 
     Text {
-        anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
-        color: "white"; font.pixelSize: 18
+        anchors { bottom: parent.bottom; right: parent.right; margins: 8 }
+        color: "white"
+        font.pixelSize: 16
         text: "Frame: " + sim.frameCount
     }
 }

@@ -2,8 +2,10 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSGRenderNode>
+#include <QSGGeometryNode>
+#include <QSGOpaqueTextureMaterial>
+#include <QSGTexture>
 #include <QtGui/rhi/qrhi.h>
-#include <QtGui/private/qrhi_p.h>
 #include <QElapsedTimer>
 #include <memory>
 
@@ -37,6 +39,9 @@ protected:
     void releaseResources() override;
     void itemChange(ItemChange change, const ItemChangeData &value) override;
 
+private:
+    QSGGeometryNode *buildDisplayNode();
+
 private slots:
     void onFrameTick();
 
@@ -61,21 +66,12 @@ public:
     void prepare() override;
     void render(const RenderState *state) override;
     void releaseResources() override;
-    RenderingFlags flags() const override;
-    QRectF rect() const override;
+    RenderingFlags flags() const override { return {}; }
+    QRectF rect() const override { return {}; }
 
-    void setDisplayRect(const QRectF &r) { m_displayRect = r; }
     float m_dt = 0.016f;
 
 private:
-    void ensurePipeline(QRhiRenderTarget *rt);
-
     FluidSimEngine *m_engine;
     QRhi *m_rhi;
-    std::unique_ptr<QRhiShaderResourceBindings> m_srb;
-    std::unique_ptr<QRhiGraphicsPipeline> m_displayPipeline;
-    QRhiRenderPassDescriptor *m_rp = nullptr;
-    QRectF m_displayRect;
-    int m_lastRtWidth = 0;
-    int m_lastRtHeight = 0;
 };

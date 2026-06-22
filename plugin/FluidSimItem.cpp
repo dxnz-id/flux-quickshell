@@ -1,6 +1,5 @@
 #include "FluidSimItem.h"
 #include "FluidSimEngine.h"
-#include "FluidSimShaders.h"
 #include <QQuickWindow>
 #include <QTimer>
 
@@ -70,7 +69,6 @@ void FluidSimItem::onFrameTick()
 
     window()->update();
 
-    // Track frame count on GUI thread (mirrors engine's render-thread count)
     m_frameCount++;
     emit frameCountChanged(m_frameCount);
 }
@@ -80,26 +78,73 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     if (!window())
         return nullptr;
 
-    // Store the QRhi pointer (render thread, valid for window lifetime)
     auto *iface = window()->rendererInterface();
     if (iface)
         m_rhi = static_cast<QRhi *>(
             iface->getResource(window(), QSGRendererInterface::RhiResource));
 
-    // Create/reuse display node
-    auto *node = static_cast<FluidDisplayNode *>(oldNode);
-    if (!node) {
-        // Engine lazy init in prepare(), node stores QRhi for later use
-        if (!m_engine)
-            m_engine = std::make_unique<FluidSimEngine>();
-        node = new FluidDisplayNode(m_engine.get(), m_rhi, m_pendingDt);
-    } else {
-        node->m_dt = m_pendingDt;
+    if (!m_engine)
+        m_engine = std::make_unique<FluidSimEngine>();
+    if (!m_engine->isInitialized() && m_rhi) {
+        m_engine->init(m_rhi, m_simSize);
     }
 
-    node->setDisplayRect(QRectF(0, 0, width(), height()));
-    node->markDirty(QSGNode::DirtyMaterial);
+    // --- Engine step node ---
+    if (!oldNode) {
+        auto *root = new QSGNode();
+        auto *engineNode = new FluidDisplayNode(m_engine.get(), m_rhi, m_pendingDt);
+        root->appendChildNode(engineNode);
+        root->appendChildNode(buildDisplayNode());
+        return root;
+    }
 
+    for (int i = 0; i < oldNode->childCount(); ++i) {
+        auto *child = oldNode->childAtIndex(i);
+        if (child->type() == QSGNode::RenderNodeType) {
+            static_cast<FluidDisplayNode *>(child)->m_dt = m_pendingDt;
+        } else if (child->type() == QSGNode::GeometryNodeType) {
+            auto *gn = static_cast<QSGGeometryNode *>(child);
+            QSGGeometry *g = gn->geometry();
+            if (g) {
+                auto *v = g->vertexDataAsTexturedPoint2D();
+                float w = width(), h = height();
+                v[0].set(0, 0, 0, 0);
+                v[1].set(w, 0, 1, 0);
+                v[2].set(0, h, 0, 1);
+                v[3].set(w, h, 1, 1);
+                gn->markDirty(QSGNode::DirtyGeometry);
+            }
+        }
+    }
+
+    return oldNode;
+}
+
+QSGGeometryNode *FluidSimItem::buildDisplayNode()
+{
+    auto *g = new QSGGeometry(QSGGeometry::defaultAttributes_TexturedPoint2D(), 4, 6);
+    g->setDrawingMode(GL_TRIANGLES);
+    auto *v = g->vertexDataAsTexturedPoint2D();
+    float w = width(), h = height();
+    v[0].set(0, 0, 0, 0);
+    v[1].set(w, 0, 1, 0);
+    v[2].set(0, h, 0, 1);
+    v[3].set(w, h, 1, 1);
+    quint16 *idx = g->indexDataAsUShort();
+    idx[0] = 0; idx[1] = 1; idx[2] = 2;
+    idx[3] = 1; idx[4] = 2; idx[5] = 3;
+
+    auto *mat = new QSGOpaqueTextureMaterial();
+    if (m_engine->isInitialized() && m_engine->displayTex()) {
+        auto *tex = window()->createTextureFromRhiTexture(m_engine->displayTex(), {});
+        mat->setTexture(tex);
+    }
+
+    auto *node = new QSGGeometryNode();
+    node->setGeometry(g);
+    node->setMaterial(mat);
+    node->setFlag(QSGNode::OwnsGeometry, true);
+    node->setFlag(QSGNode::OwnsMaterial, true);
     return node;
 }
 
@@ -127,116 +172,21 @@ FluidDisplayNode::~FluidDisplayNode()
     releaseResources();
 }
 
-QSGRenderNode::RenderingFlags FluidDisplayNode::flags() const
-{
-    return QSGRenderNode::BoundedRectRendering;
-}
-
-QRectF FluidDisplayNode::rect() const
-{
-    return m_displayRect;
-}
-
-void FluidDisplayNode::ensurePipeline(QRhiRenderTarget *rt)
-{
-    QRhiRenderPassDescriptor *rp = rt->renderPassDescriptor();
-    if (!rp)
-        return;
-
-    // Recreate pipeline if render target size changed (RP desc might have changed)
-    bool sizeChanged = m_lastRtWidth != rt->pixelSize().width() ||
-                       m_lastRtHeight != rt->pixelSize().height();
-    if (m_displayPipeline && m_rp == rp && !sizeChanged)
-        return;
-
-    m_rp = rp;
-
-    QShader vs = FluidSimShaders::loadShader("display_vert");
-    QShader fs = FluidSimShaders::loadShader("display_frag");
-    if (!vs.isValid() || !fs.isValid())
-        return;
-
-    auto *pp = m_rhi->newGraphicsPipeline();
-    pp->setShaderStages({
-        { QRhiShaderStage::Vertex, vs },
-        { QRhiShaderStage::Fragment, fs }
-    });
-    pp->setRenderPassDescriptor(rp);
-    pp->setShaderResourceBindings(m_srb.get());
-
-    QRhiVertexInputLayout inputLayout;
-    inputLayout.setBindings({
-        QRhiVertexInputBinding(4 * sizeof(float))
-    });
-    inputLayout.setAttributes({
-        QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),
-        QRhiVertexInputAttribute(1, 0, QRhiVertexInputAttribute::Float2, 2 * sizeof(float)),
-    });
-    pp->setVertexInputLayout(inputLayout);
-
-    QRhiGraphicsPipeline::TargetBlend blend;
-    blend.enable = false;
-    pp->setTargetBlends({ blend });
-    pp->create();
-
-    m_displayPipeline.reset(pp);
-    m_lastRtWidth = rt->pixelSize().width();
-    m_lastRtHeight = rt->pixelSize().height();
-}
-
 void FluidDisplayNode::prepare()
 {
     if (!m_engine || !m_rhi)
         return;
 
-    if (!m_engine->isInitialized()) {
-        m_engine->init(m_rhi, 128);
-        fprintf(stderr, "  FluidDisplayNode::prepare: init() called\n");
-    }
-
     QRhiCommandBuffer *cb = commandBuffer();
     if (cb)
         m_engine->step(cb, m_dt);
-
-    QRhiTexture *tex = m_engine->currentOutputTex();
-    QRhiSampler *sampler = m_engine->nearestSampler();
-    m_srb.reset(m_rhi->newShaderResourceBindings());
-    QRhiShaderResourceBinding binding = QRhiShaderResourceBinding::sampledTexture(
-        0, QRhiShaderResourceBinding::FragmentStage, tex, sampler);
-    m_srb->setBindings({binding});
-    m_srb->create();
 }
 
-void FluidDisplayNode::render(const RenderState *state)
+void FluidDisplayNode::render(const RenderState *)
 {
-    Q_UNUSED(state)
-    if (!m_engine || !m_rhi || !m_srb)
-        return;
-
-    QRhiCommandBuffer *cb = commandBuffer();
-    QRhiRenderTarget *rt = renderTarget();
-    QRhiBuffer *vBuf = m_engine->displayVertexBuffer();
-
-    if (!cb || !rt || !vBuf)
-        return;
-
-    ensurePipeline(rt);
-    if (!m_displayPipeline)
-        return;
-
-    const QSize size = rt->pixelSize();
-
-    QRhiCommandBuffer::VertexInput vi(vBuf, 0);
-    cb->setGraphicsPipeline(m_displayPipeline.get());
-    cb->setShaderResources(m_srb.get());
-    cb->setViewport(QRhiViewport(0, 0, size.width(), size.height()));
-    cb->setVertexInput(0, 1, &vi);
-    cb->draw(4);
 }
 
 void FluidDisplayNode::releaseResources()
 {
-    m_srb.reset();
-    m_displayPipeline.reset();
-    m_rp = nullptr;
+    m_engine = nullptr;
 }

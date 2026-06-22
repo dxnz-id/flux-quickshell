@@ -19,12 +19,9 @@ public:
     int fluidSize() const { return m_fluidSize; }
     bool isInitialized() const { return m_initialized; }
 
-    // Display resources for QSGRenderNode
-    QRhiGraphicsPipeline *displayPipeline() const { return m_displayPipeline.get(); }
-    QRhiShaderResourceBindings *createDisplayBindings();
-    QRhiBuffer *displayVertexBuffer() const { return m_displayVertexBuf.get(); }
-    QRhiTexture *currentOutputTex() const { return m_velocityTex[1 - m_velocityIndex].get(); }
+    QRhiTexture *displayTex() const { return m_displayTex.get(); }
     QRhiSampler *nearestSampler() const { return m_nearestSampler.get(); }
+    QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
 signals:
     void frameCountChanged(int count);
@@ -34,7 +31,7 @@ private:
     void createSamplers();
     void createBuffers();
     void createGraphicsPipelines();
-    void createDisplayPipeline(QRhi *rhi);
+    void createDisplayPass();
     void createRenderTargets();
     void initNoiseChannels();
     void updateNoiseChannels(float dt);
@@ -60,12 +57,12 @@ private:
     PassPipeline m_passDivergence[2]; // indexed by vi (which velocity to read)
     PassPipeline m_passPressure[2];  // indexed by pi (which pressure to read)
     PassPipeline m_passSubtract[2][2]; // indexed by [vi][pi]
-    PassPipeline m_passDummy;        // for initial pipeline creation
 
-    // Display pipeline (separate, reads from velocity and renders to screen)
-    std::unique_ptr<QRhiGraphicsPipeline> m_displayPipeline;
-    std::unique_ptr<QRhiBuffer> m_displayVertexBuf;
-    std::unique_ptr<QRhiRenderPassDescriptor> m_displayRPDesc;
+    // Display texture + pass (converts velocity RGBA16F → heatmap RGBA8)
+    std::unique_ptr<QRhiTexture> m_displayTex;
+    std::unique_ptr<QRhiTextureRenderTarget> m_displayRT;
+    std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA8;
+    PassPipeline m_passDisplay;
 
     // Render targets for solver passes (one per writable texture)
     std::unique_ptr<QRhiTextureRenderTarget> m_velRT[2];

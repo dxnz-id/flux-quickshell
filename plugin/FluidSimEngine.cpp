@@ -158,7 +158,6 @@ void FluidSimEngine::releaseResources()
     m_pushConstantBuf.reset();
 
     m_quadVertexBuf.reset();
-    m_displayVertexBuf.reset();
 
     m_passNoise.srb.reset();
     for (auto &p : m_passAdvection) p.srb.reset();
@@ -169,12 +168,13 @@ void FluidSimEngine::releaseResources()
     for (auto &p : m_passDivergence) p.srb.reset();
     for (auto &p : m_passPressure) p.srb.reset();
     for (auto &a : m_passSubtract) for (auto &p : a) p.srb.reset();
-    m_passDummy.srb.reset();
+    m_passDisplay.srb.reset();
 
     for (auto &rt : m_velRT) rt.reset();
     for (auto &rt : m_pressureRT) rt.reset();
     m_advectionFwdRT.reset(); m_advectionRevRT.reset();
     m_divergenceRT.reset(); m_noiseRT.reset();
+    m_displayRT.reset();
 
     m_passNoise.pipeline.reset();
     for (auto &p : m_passAdvection) p.pipeline.reset();
@@ -185,12 +185,11 @@ void FluidSimEngine::releaseResources()
     for (auto &p : m_passDivergence) p.pipeline.reset();
     for (auto &p : m_passPressure) p.pipeline.reset();
     for (auto &a : m_passSubtract) for (auto &p : a) p.pipeline.reset();
-    m_passDummy.pipeline.reset();
-    m_displayPipeline.reset();
+    m_passDisplay.pipeline.reset();
 
     m_rpDescRGBA16F.reset();
     m_rpDescR32F.reset();
-    m_displayRPDesc.reset();
+    m_rpDescRGBA8.reset();
 
     m_rhi = nullptr;
     m_initialized = false;
@@ -214,7 +213,7 @@ void FluidSimEngine::init(QRhi *rhi, int fluidSize)
     createBuffers();
     createRenderTargets();
     createGraphicsPipelines();
-    createDisplayPipeline(rhi);
+    createDisplayPass();
 
     m_initialized = true;
     fprintf(stderr, "FluidSimEngine::init DONE\n");
@@ -242,6 +241,7 @@ void FluidSimEngine::createTextures()
 
     m_velocityTex[0] = makeTex("velocity0", s, s, QRhiTexture::RGBA16F, texFlags);
     m_velocityTex[1] = makeTex("velocity1", s, s, QRhiTexture::RGBA16F, texFlags);
+    m_displayTex = makeTex("display", s, s, QRhiTexture::RGBA8, texFlags);
     m_pressureTex[0] = makeTex("pressure0", s, s, QRhiTexture::R32F, texFlags);
     m_pressureTex[1] = makeTex("pressure1", s, s, QRhiTexture::R32F, texFlags);
     m_noiseTex = makeTex("noise", ns, ns, QRhiTexture::RGBA16F, texFlags);
@@ -409,6 +409,7 @@ void FluidSimEngine::createGraphicsPipelines()
             QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0)
         });
         pp->setVertexInputLayout(inputLayout);
+        pp->setTopology(QRhiGraphicsPipeline::TriangleStrip);
         QRhiGraphicsPipeline::TargetBlend blend;
         blend.enable = false;
         pp->setTargetBlends({ blend });
@@ -494,32 +495,48 @@ void FluidSimEngine::createGraphicsPipelines()
     }
 
     // Dummy (checkerboard)
-    m_passDummy.srb.reset(buildBinding({ }));
-    makePipeline("solid_red", m_passDummy.srb.get(), m_rpDescRGBA16F.get(), m_passDummy.pipeline);
+    // -- No more dummy pipelines needed
 
     fprintf(stderr, "  All solver pipelines created\n");
 }
 
-void FluidSimEngine::createDisplayPipeline(QRhi *rhi)
+void FluidSimEngine::createDisplayPass()
 {
-    Q_UNUSED(rhi)
-    QShader displayVs = FluidSimShaders::loadShader("display_vert");
-    QShader displayFs = FluidSimShaders::loadShader("display_frag");
+    int s = m_fluidSize;
 
-    m_displayVertexBuf.reset(m_rhi->newBuffer(
-        QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, 4 * 4 * sizeof(float)));
-    m_displayVertexBuf->setName("displayQuad");
-    m_displayVertexBuf->create();
+    m_displayTex.reset(m_rhi->newTexture(QRhiTexture::RGBA8, {s, s}, 1, QRhiTexture::RenderTarget));
+    m_displayTex->setName("displayTex");
+    m_displayTex->create();
 
-    float verts[] = {
-        -1, -1,  0, 0,
-         1, -1,  1, 0,
-        -1,  1,  0, 1,
-         1,  1,  1, 1,
-    };
-    m_pendingDisplayUploadBatch = m_rhi->nextResourceUpdateBatch();
-    m_pendingDisplayUploadBatch->uploadStaticBuffer(m_displayVertexBuf.get(),
-        QByteArray((const char*)verts, sizeof(verts)));
+    m_displayRT.reset(m_rhi->newTextureRenderTarget({m_displayTex.get()}));
+    m_rpDescRGBA8.reset(m_displayRT->newCompatibleRenderPassDescriptor());
+    m_rpDescRGBA8->setName("rpRGBA8");
+    m_displayRT->setRenderPassDescriptor(m_rpDescRGBA8.get());
+    m_displayRT->setName("displayRT");
+    m_displayRT->create();
+
+    m_passDisplay.srb.reset(buildBinding({
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+            m_velocityTex[0].get(), m_nearestSampler.get()),
+    }));
+    auto *pp = m_rhi->newGraphicsPipeline();
+    QShader vs = FluidSimShaders::loadShader("fullscreen_quad");
+    QShader fs = FluidSimShaders::loadShader("display_frag");
+    pp->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    pp->setRenderPassDescriptor(m_rpDescRGBA8.get());
+    pp->setShaderResourceBindings(m_passDisplay.srb.get());
+    QRhiVertexInputLayout inputLayout;
+    inputLayout.setBindings({ QRhiVertexInputBinding(2 * sizeof(float)) });
+    inputLayout.setAttributes({ QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0) });
+    pp->setVertexInputLayout(inputLayout);
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = false;
+    pp->setTargetBlends({ blend });
+    pp->setTopology(QRhiGraphicsPipeline::TriangleStrip);
+    pp->create();
+    m_passDisplay.pipeline.reset(pp);
+
+    fprintf(stderr, "  Display pass created (%dx%d RGBA8)\n", s, s);
 }
 
 static constexpr int PASSES_PER_FRAME = 32;
@@ -635,7 +652,12 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
         ph = 0;
         m_frameCount++;
 
-        // Bypass: no frame-boundary dummy draw
+        // Display conversion: read from current velocity, write to display texture
+        m_passDisplay.srb.reset(buildBinding({
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                m_velocityTex[m_velocityIndex].get(), m_nearestSampler.get()),
+        }));
+        drawPass(cb, m_displayRT.get(), m_passDisplay, m_fluidSize, m_fluidSize, nullptr);
 
         if (m_frameCount % 5 == 1) {
             // Read from current output (should be latest written)
@@ -707,16 +729,4 @@ void FluidSimEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt
     cb->setVertexInput(0, 1, &vi);
     cb->draw(4);
     cb->endPass();
-}
-
-QRhiShaderResourceBindings *FluidSimEngine::createDisplayBindings()
-{
-    QRhiSampler *nearest = m_nearestSampler.get();
-    auto *srb = m_rhi->newShaderResourceBindings();
-    srb->setBindings({
-        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
-            m_velocityTex[1 - m_velocityIndex].get(), nearest),
-    });
-    srb->create();
-    return srb;
 }
