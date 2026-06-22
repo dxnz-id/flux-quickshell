@@ -24,5 +24,5 @@ void main() {
         bc.y = 0.0;
     newVel *= bc;
 
-    fragColor = vec4(newVel, 0.0, 1.0);
+    fragColor = vec4(newVel, 0.0, 0.0);
 }

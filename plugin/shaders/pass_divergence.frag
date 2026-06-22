@@ -16,5 +16,5 @@ void main() {
     float t = texelFetch(velocityTex, clampPos(pos + ivec2(0,  1), sz), 0).y;
     float b = texelFetch(velocityTex, clampPos(pos + ivec2(0, -1), sz), 0).y;
     float newDiv = 0.5 * ((r - l) + (t - b));
-    fragColor = vec4(newDiv, 0.0, 0.0, 1.0);
+    fragColor = vec4(newDiv, 0.0, 0.0, 0.0);
 }

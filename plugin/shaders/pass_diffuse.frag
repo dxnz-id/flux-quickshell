@@ -21,5 +21,5 @@ void main() {
     float stencil_factor = 0.0625f;
     float center_factor = 12.0f;
     vec2 newVel = stencil_factor * (l + r + b + t + center_factor * c);
-    fragColor = vec4(newVel, 0.0, 1.0);
+    fragColor = vec4(newVel, 0.0, 0.0);
 }

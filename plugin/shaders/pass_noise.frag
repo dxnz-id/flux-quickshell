@@ -88,5 +88,5 @@ void main() {
         noise += CH[i].mult * n;
     }
 
-    fragColor = vec4(noise * NOISE_MULT, 0.0, 1.0);
+    fragColor = vec4(noise * NOISE_MULT, 0.0, 0.0);
 }

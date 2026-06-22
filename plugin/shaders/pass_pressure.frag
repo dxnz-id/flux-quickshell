@@ -31,5 +31,5 @@ void main() {
     float alpha = -1.0f;
     float newPressure = r_beta * (l + r + b + t + alpha * divergence);
 
-    fragColor = vec4(newPressure, 0.0, 0.0, 1.0);
+    fragColor = vec4(newPressure, 0.0, 0.0, 0.0);
 }

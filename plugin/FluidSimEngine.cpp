@@ -10,8 +10,6 @@
 
 #pragma pack(push, 1)
 
-#define TAU 6.283185307179586f
-
 struct FluidUniforms {
     float timestep;
     float dissipation;
@@ -652,10 +650,6 @@ void FluidSimEngine::updateNoiseChannels(float dt)
         m_elapsedTime -= MAX_ELAPSED;
     for (int i = 0; i < NUM_CHANNELS; i++) {
         auto &ch = m_channels[i];
-        float scale = CHANNEL_CFG[i].scale * (1.0f + 0.15f * std::sin(0.01f * m_elapsedTime * float(TAU)));
-        ch.scale[0] = scale;
-        ch.scale[1] = scale;
-        ch.multiplier = CHANNEL_CFG[i].mult;
         ch.offset_1 += CHANNEL_CFG[i].inc;
         if (ch.offset_1 > 1000.0f) {
             ch.blend_factor += CHANNEL_CFG[i].inc;

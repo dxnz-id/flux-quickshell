@@ -17,5 +17,5 @@ void main() {
     float decay = 1.0 + dissipation * timestep;
     vec2 newVel = textureLod(velocityTex, advectedPos, 0.0).xy / decay;
 
-    fragColor = vec4(newVel, 0.0, 1.0);
+    fragColor = vec4(newVel, 0.0, 0.0);
 }
