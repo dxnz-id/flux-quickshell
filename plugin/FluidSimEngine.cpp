@@ -38,8 +38,10 @@ struct GpuNoiseParams {
     float ch0_off1, ch0_off2, ch0_blend, _pad1;
     float ch1_off1, ch1_off2, ch1_blend, _pad2;
     float ch2_off1, ch2_off2, ch2_blend, _pad3;
+    float noiseSize[2];
+    float _pad4[2];
 };
-static_assert(sizeof(GpuNoiseParams) == 64, "GpuNoiseParams must be 64 bytes");
+static_assert(sizeof(GpuNoiseParams) == 80, "GpuNoiseParams must be 80 bytes");
 #pragma pack(pop)
 
 struct ChannelCfg {
@@ -54,7 +56,7 @@ static constexpr ChannelCfg CHANNEL_CFG[3] = {
     { 30.0f, 0.5f, 0.012f },
 };
 
-static constexpr float MAX_ELAPSED = 100000.0f;
+static constexpr float MAX_ELAPSED = 1000.0f;
 
 FluidSimEngine::FluidSimEngine(QObject *parent)
     : QObject(parent)
@@ -516,7 +518,6 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
     m_pendingQuadUploadBatch = nullptr;
 
     int s = m_fluidSize;
-    int ns = 2 * m_fluidSize;
 
     // GPU noise generation at frame start
     if (m_stepPhase == 0) {
@@ -532,19 +533,23 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
             *off2 = m_channels[i].offset_2;
             *blend = m_channels[i].blend_factor;
         }
+        QSize noisePx = m_noiseTex->pixelSize();
+        gp.noiseSize[0] = float(noisePx.width());
+        gp.noiseSize[1] = float(noisePx.height());
         auto *ub = m_rhi->nextResourceUpdateBatch();
         ub->uploadStaticBuffer(m_gpuNoiseBuf.get(), QByteArray((const char*)&gp, sizeof(gp)));
-        drawPass(cb, m_noiseRT.get(), m_passNoise, ns, ns, ub);
+        drawPass(cb, m_noiseRT.get(), m_passNoise, noisePx.width(), noisePx.height(), ub);
     }
 
     int vi = m_velocityIndex;
     int pi = m_pressureIndex;
     int &ph = m_stepPhase;
 
+    QSize noisePx = m_noiseTex->pixelSize();
     for (int done = 0; done < PASSES_PER_FRAME && ph < TOTAL_PHASES; done++, ph++) {
         switch (ph) {
         case 0: // GPU noise — writes noiseTex
-            drawPass(cb, m_noiseRT.get(), m_passNoise, ns, ns, nullptr);
+            drawPass(cb, m_noiseRT.get(), m_passNoise, noisePx.width(), noisePx.height(), nullptr);
             break;
 
         case 1: // Advect forward — reads vel[vi], writes to advectionFwd

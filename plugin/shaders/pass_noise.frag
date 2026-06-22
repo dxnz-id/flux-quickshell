@@ -5,18 +5,18 @@ layout(binding = 0, std140) uniform NoiseParams {
     vec4 ch0;
     vec4 ch1;
     vec4 ch2;
+    vec2 noiseSize;
 };
 
 layout(location = 0) out vec4 fragColor;
 
 const float NOISE_MULT = 0.45;
-const float NS = 256.0;
 
-struct Chan { float scale, inc, mult; };
+struct Chan { float scale; float mult; };
 const Chan CH[3] = Chan[](
-    Chan(2.8,  0.001, 1.0),
-    Chan(15.0, 0.006, 0.7),
-    Chan(30.0, 0.012, 0.5)
+    Chan(2.8,  1.0),
+    Chan(15.0, 0.7),
+    Chan(30.0, 0.5)
 );
 
 float mod289(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -71,7 +71,7 @@ vec2 makeNoisePair(vec3 params) {
 
 void main() {
     ivec2 pos = ivec2(gl_FragCoord.xy);
-    vec2 texelPos = (vec2(pos) + 0.5) / NS;
+    vec2 texelPos = (vec2(pos) + 0.5) / noiseSize;
 
     vec4 chData[3] = vec4[](ch0, ch1, ch2);
     vec2 noise = vec2(0.0);
