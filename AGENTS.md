@@ -202,6 +202,7 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] qsb compiler flag: `--glsl "440"` (not `--qt6`) karena butuh texelFetch/textureSize
 - [x] **Fixed index order in QSGGeometryNode display quad**: `{0,1,2, 1,2,3}` (bukan `{0,1,2, 0,2,3}`) untuk `GL_TRIANGLES`. Indeks `{0,2,3}` kedua membuat kedua triangle share LEFT EDGE (v0-v2), overlap di left half, miss right half → coverage 75%. Indeks `{1,2,3}` membuat mereka share diagonal v1-v2, form solid quad → coverage 100%.
 - [x] **100% window coverage verified** via grim capture + ImageMagick quadrant analysis (mean.g 0.9997+ di semua quadrant dengan solid green test shader)
+- [x] **Debug mode system**: 5 mode display (Normal/Fluid/Noise/Pressure/Divergence) dengan `display_debug.frag` (bias decode + contrast 2.0, match referensi). Display texture 256×256 RGBA8. Mode switching via `FluidSimItem.debugMode` property + 5 tombol QML.
 
 ### Belum Dimulai
 - [ ] Line rendering (spring dynamics, stateful particle system)

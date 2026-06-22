@@ -50,6 +50,17 @@ void FluidSimItem::setSimSize(int s)
     emit simSizeChanged();
 }
 
+void FluidSimItem::setDebugMode(int mode)
+{
+    if (m_debugMode == mode)
+        return;
+    m_debugMode = mode;
+    if (m_engine)
+        m_engine->setDebugMode(mode);
+    emit debugModeChanged();
+    update();
+}
+
 void FluidSimItem::onFrameTick()
 {
     if (!window() || !m_running)

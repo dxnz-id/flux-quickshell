@@ -23,6 +23,8 @@ public:
     QRhiSampler *nearestSampler() const { return m_nearestSampler.get(); }
     QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
+    void setDebugMode(int mode) { m_debugMode = mode; }
+
 signals:
     void frameCountChanged(int count);
 
@@ -58,11 +60,12 @@ private:
     PassPipeline m_passPressure[2];  // indexed by pi (which pressure to read)
     PassPipeline m_passSubtract[2][2]; // indexed by [vi][pi]
 
-    // Display texture + pass (converts velocity RGBA16F → heatmap RGBA8)
+    // Display texture (256x256 RGBA8) + pipeline
     std::unique_ptr<QRhiTexture> m_displayTex;
     std::unique_ptr<QRhiTextureRenderTarget> m_displayRT;
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA8;
-    PassPipeline m_passDisplay;
+    PassPipeline m_passDisplay;      // heatmap (velocity → color)
+    PassPipeline m_passDebug;        // bias+contrast (raw texture)
 
     // Render targets for solver passes (one per writable texture)
     std::unique_ptr<QRhiTextureRenderTarget> m_velRT[2];
@@ -84,6 +87,9 @@ private:
 
     // Draw a full-screen quad into the given render target using the given pass
     void drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt, PassPipeline &pass,
+                  int width, int height, QRhiResourceUpdateBatch *ub = nullptr);
+    void drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt,
+                  QRhiGraphicsPipeline *pipeline, QRhiShaderResourceBindings *srb,
                   int width, int height, QRhiResourceUpdateBatch *ub = nullptr);
 
     QRhi *m_rhi = nullptr;
@@ -128,6 +134,7 @@ private:
     int m_pressureIterations = 19;
     int m_stepPhase = 0;
     float m_noiseMultiplier = 0.1f;
+    int m_debugMode = 0;
 
     // Noise channel state
     static constexpr int NUM_CHANNELS = 3;

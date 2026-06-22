@@ -502,9 +502,9 @@ void FluidSimEngine::createGraphicsPipelines()
 
 void FluidSimEngine::createDisplayPass()
 {
-    int s = m_fluidSize;
+    int ds = 2 * m_fluidSize;  // 256
 
-    m_displayTex.reset(m_rhi->newTexture(QRhiTexture::RGBA8, {s, s}, 1, QRhiTexture::RenderTarget));
+    m_displayTex.reset(m_rhi->newTexture(QRhiTexture::RGBA8, {ds, ds}, 1, QRhiTexture::RenderTarget));
     m_displayTex->setName("displayTex");
     m_displayTex->create();
 
@@ -515,28 +515,34 @@ void FluidSimEngine::createDisplayPass()
     m_displayRT->setName("displayRT");
     m_displayRT->create();
 
-    m_passDisplay.srb.reset(buildBinding({
-        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
-            m_velocityTex[0].get(), m_nearestSampler.get()),
-    }));
-    auto *pp = m_rhi->newGraphicsPipeline();
-    QShader vs = FluidSimShaders::loadShader("fullscreen_quad");
-    QShader fs = FluidSimShaders::loadShader("display_frag");
-    pp->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    pp->setRenderPassDescriptor(m_rpDescRGBA8.get());
-    pp->setShaderResourceBindings(m_passDisplay.srb.get());
-    QRhiVertexInputLayout inputLayout;
-    inputLayout.setBindings({ QRhiVertexInputBinding(2 * sizeof(float)) });
-    inputLayout.setAttributes({ QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0) });
-    pp->setVertexInputLayout(inputLayout);
-    QRhiGraphicsPipeline::TargetBlend blend;
-    blend.enable = false;
-    pp->setTargetBlends({ blend });
-    pp->setTopology(QRhiGraphicsPipeline::TriangleStrip);
-    pp->create();
-    m_passDisplay.pipeline.reset(pp);
+    auto makeDisplayPipeline = [&](const QString &fragName, PassPipeline &out) {
+        QShader vs = FluidSimShaders::loadShader("fullscreen_quad");
+        QShader fs = FluidSimShaders::loadShader(fragName);
+        // Temp SRB just for pipeline creation (will be replaced each frame)
+        out.srb.reset(buildBinding({
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                m_velocityTex[0].get(), m_nearestSampler.get()),
+        }));
+        auto *pp = m_rhi->newGraphicsPipeline();
+        pp->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+        pp->setRenderPassDescriptor(m_rpDescRGBA8.get());
+        pp->setShaderResourceBindings(out.srb.get());
+        QRhiVertexInputLayout inputLayout;
+        inputLayout.setBindings({ QRhiVertexInputBinding(2 * sizeof(float)) });
+        inputLayout.setAttributes({ QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0) });
+        pp->setVertexInputLayout(inputLayout);
+        QRhiGraphicsPipeline::TargetBlend blend;
+        blend.enable = false;
+        pp->setTargetBlends({ blend });
+        pp->setTopology(QRhiGraphicsPipeline::TriangleStrip);
+        pp->create();
+        out.pipeline.reset(pp);
+    };
 
-    fprintf(stderr, "  Display pass created (%dx%d RGBA8)\n", s, s);
+    makeDisplayPipeline("display_frag", m_passDisplay);
+    makeDisplayPipeline("display_debug", m_passDebug);
+
+    fprintf(stderr, "  Display passes created (%dx%d RGBA8)\n", ds, ds);
 }
 
 static constexpr int PASSES_PER_FRAME = 32;
@@ -652,44 +658,50 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
         ph = 0;
         m_frameCount++;
 
-        // Display conversion: read from current velocity, write to display texture
-        m_passDisplay.srb.reset(buildBinding({
-            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
-                m_velocityTex[m_velocityIndex].get(), m_nearestSampler.get()),
-        }));
-        drawPass(cb, m_displayRT.get(), m_passDisplay, m_fluidSize, m_fluidSize, nullptr);
+        int ds = 2 * m_fluidSize;  // display texture size: 256
 
-        if (m_frameCount % 5 == 1) {
-            // Read from current output (should be latest written)
-            QRhiTexture *tex = m_velocityTex[m_velocityIndex].get();
-            auto *ub = m_rhi->nextResourceUpdateBatch();
-            QRhiReadbackDescription rb;
-            rb.setTexture(tex);
-            QRhiReadbackResult *res = new QRhiReadbackResult();
-            res->completed = [res]() {
-                if (res->data.size() >= 8) {
-                    const uint16_t *p = (const uint16_t*)res->data.constData();
-                    auto h2f = [](uint16_t h) -> float {
-                        int s=(h>>15)&1, e=(h>>10)&0x1f, m=h&0x3ff;
-                        if (e==0) return m?(s?-1:1)*(m/1024.0f)*0x1p-24f:(s?-0.0f:0.0f);
-                        if (e==31) return s?-INFINITY:INFINITY;
-                        float base = (s?-1:1) * (1.0f + float(m)/1024.0f);
-                        float result = base * ldexpf(1.0f, e - 15);
-                        return result;
-                    };
-                    const int S = 128;
-                    auto rawAt = [&](int x, int y, int ch) { return p[(y * S + x) * 4 + ch]; };
-                    fprintf(stderr, "  velI) [0,0]=(%.3f,%.3f) raw=(0x%04x,0x%04x)"
-                            " [4,4]=(%.3f,%.3f) raw=(0x%04x,0x%04x)"
-                            " [16,16]=(%.3f,%.3f) raw=(0x%04x,0x%04x)\n",
-                        (double)h2f(p[0]), (double)h2f(p[1]), rawAt(0,0,0), rawAt(0,0,1),
-                        (double)h2f(p[(4*S+4)*4]), (double)h2f(p[(4*S+4)*4+1]), rawAt(4,4,0), rawAt(4,4,1),
-                        (double)h2f(p[(16*S+16)*4]), (double)h2f(p[(16*S+16)*4+1]), rawAt(16,16,0), rawAt(16,16,1));
-                }
-            };
-            ub->readBackTexture(rb, res);
-            cb->resourceUpdate(ub);
+        // Select display pipeline + binding based on debug mode
+        QRhiGraphicsPipeline *pipeline = nullptr;
+        std::unique_ptr<QRhiShaderResourceBindings> srb;
+
+        switch (m_debugMode) {
+        case 0: // Normal — heatmap from velocity
+            pipeline = m_passDisplay.pipeline.get();
+            srb.reset(buildBinding({
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                    m_velocityTex[m_velocityIndex].get(), m_nearestSampler.get()),
+            }));
+            break;
+        case 1: // Fluid — raw velocity
+            pipeline = m_passDebug.pipeline.get();
+            srb.reset(buildBinding({
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                    m_velocityTex[m_velocityIndex].get(), m_nearestSampler.get()),
+            }));
+            break;
+        case 2: // Noise — raw noise texture
+            pipeline = m_passDebug.pipeline.get();
+            srb.reset(buildBinding({
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                    m_noiseTex.get(), m_nearestSampler.get()),
+            }));
+            break;
+        case 3: // Pressure
+            pipeline = m_passDebug.pipeline.get();
+            srb.reset(buildBinding({
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                    m_pressureTex[m_pressureIndex].get(), m_nearestSampler.get()),
+            }));
+            break;
+        case 4: // Divergence
+            pipeline = m_passDebug.pipeline.get();
+            srb.reset(buildBinding({
+                QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
+                    m_divergenceTex.get(), m_nearestSampler.get()),
+            }));
+            break;
         }
+        drawPass(cb, m_displayRT.get(), pipeline, srb.get(), ds, ds, nullptr);
     }
 }
 
@@ -721,9 +733,16 @@ void FluidSimEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt
                               PassPipeline &pass, int w, int h,
                               QRhiResourceUpdateBatch *ub)
 {
+    drawPass(cb, rt, pass.pipeline.get(), pass.srb.get(), w, h, ub);
+}
+
+void FluidSimEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt,
+                              QRhiGraphicsPipeline *pipeline, QRhiShaderResourceBindings *srb,
+                              int w, int h, QRhiResourceUpdateBatch *ub)
+{
     cb->beginPass(rt, QColor(0, 0, 0, 0), QRhiDepthStencilClearValue{1.0f, 0}, ub);
-    cb->setGraphicsPipeline(pass.pipeline.get());
-    cb->setShaderResources(pass.srb.get());
+    cb->setGraphicsPipeline(pipeline);
+    cb->setShaderResources(srb);
     cb->setViewport(QRhiViewport(0, 0, float(w), float(h)));
     QRhiCommandBuffer::VertexInput vi(m_quadVertexBuf.get(), 0);
     cb->setVertexInput(0, 1, &vi);

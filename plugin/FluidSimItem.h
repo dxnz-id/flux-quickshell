@@ -18,6 +18,7 @@ class FluidSimItem : public QQuickItem {
     Q_PROPERTY(bool running READ isRunning WRITE setRunning NOTIFY runningChanged)
     Q_PROPERTY(int frameCount READ frameCount NOTIFY frameCountChanged)
     Q_PROPERTY(int simSize READ simSize WRITE setSimSize NOTIFY simSizeChanged)
+    Q_PROPERTY(int debugMode READ debugMode WRITE setDebugMode NOTIFY debugModeChanged)
 public:
     explicit FluidSimItem(QQuickItem *parent = nullptr);
     ~FluidSimItem();
@@ -28,11 +29,14 @@ public:
     int frameCount() const { return m_frameCount; }
     int simSize() const { return m_simSize; }
     void setSimSize(int s);
+    int debugMode() const { return m_debugMode; }
+    void setDebugMode(int mode);
 
 signals:
     void runningChanged();
     void frameCountChanged(int count);
     void simSizeChanged();
+    void debugModeChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -53,6 +57,7 @@ private:
     int m_simSize = 128;
     float m_pendingDt = 0.016f;
     QRhi *m_rhi = nullptr;
+    int m_debugMode = 0;
 
     QElapsedTimer m_elapsed;
     qint64 m_lastTick = 0;

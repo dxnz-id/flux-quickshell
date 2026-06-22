@@ -7,7 +7,7 @@ int main(int argc, char *argv[]) {
     QQmlApplicationEngine engine;
 
     // Load QML from filesystem so relative shader paths resolve to the same directory
-    QString qmlPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("main.qml");
+    QString qmlPath = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("test_fluid.qml");
     engine.load(QUrl::fromLocalFile(qmlPath));
     if (engine.rootObjects().isEmpty())
         return -1;
