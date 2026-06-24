@@ -37,6 +37,20 @@ foreach(frag ${FRAGMENT_SHADERS})
     )
 endforeach()
 
+file(GLOB COMPUTE_SHADERS shaders/*.comp)
+foreach(comp ${COMPUTE_SHADERS})
+    get_filename_component(name ${comp} NAME_WE)
+    set(qsb_output ${CMAKE_CURRENT_BINARY_DIR}/shaders/${name}.qsb)
+    list(APPEND QSB_FILES ${qsb_output})
+    add_custom_command(
+        OUTPUT ${qsb_output}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/shaders
+        COMMAND ${QSB_TOOL} --glsl "440" ${comp} -o ${qsb_output}
+        MAIN_DEPENDENCY ${comp}
+        COMMENT "Baking ${name}.comp -> ${name}.qsb"
+    )
+endforeach()
+
 qt_add_qml_module(fluidsim
     URI FluidSim
     VERSION 1.0

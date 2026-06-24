@@ -36,6 +36,7 @@ private:
     void createDisplayPass();
     void createRenderTargets();
     void initNoiseChannels();
+    void testComputeAndSSBO();
     void updateNoiseChannels(float dt);
 
     QRhiShaderResourceBindings *buildBinding(std::initializer_list<QRhiShaderResourceBinding> list);

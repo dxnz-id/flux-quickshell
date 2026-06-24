@@ -1,5 +1,30 @@
 # Analisis Line Rendering — Channel Packing & Update Strategy
 
+## ⚠️ OBSOLETE untuk C++ QRhi Pipeline (2026-06-24)
+
+Dokumen ini ditulis untuk **QML ShaderEffect** dengan constraint:
+1 sampler per ShaderEffect, tidak ada SSBO, tidak ada compute shader.
+
+**Semua constraint tersebut TIDAK BERLAKU untuk pipeline C++ QRhi:**
+- ✅ **Multi-sampler binding**: `QRhiShaderResourceBinding` support binding banyak sampler sekaligus
+- ✅ **SSBO / Storage buffer**: `QRhiBuffer::StorageBuffer` (perlu verifikasi di GLES2 backend)
+- ✅ **Compute shader**: `QRhiComputePipeline` (perlu verifikasi di GLES2 backend)
+- ✅ **Custom vertex shader**: berfungsi penuh di C++ QRhi
+
+**Yang masih relevan dari dokumen ini:**
+- Struktur data `Line { endpoint, velocity, color, color_velocity, width }`
+- Spring dynamics formula (`place_lines.comp.wgsl:138-145`)
+- Parameter reference (grid_spacing, line_length, line_width, dll)
+- Vertex shader expansion (line.wgsl) — bisa di-port langsung
+- Fragment shader effects (fade-in, anti-alias, endpoint rendering)
+
+**Yang perlu di-rethink:**
+- Channel packing strategy → sekarang pakai SSBO, bukan encoding ke RGBA8
+- Multi-pass sequential untuk update posisi → compute shader bisa baca semua input dalam 1 pass
+- Constraint 1 sampler → sekarang multi-sampler binding berfungsi penuh
+
+---
+
 ## DEFINITIVE TEST: 2-Sampler Binding di Quickshell Runtime
 
 ### Date

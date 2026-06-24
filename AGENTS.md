@@ -17,6 +17,10 @@ BUKAN QML ShaderEffect chain. Ini perubahan arsitektur fundamental.
 - **Parameter via uniform buffer** berfungsi penuh via C++.
 - **Unbuked encoding** tidak diperlukan untuk pipeline solver (RGBA16F internal textures).
 - **Custom vertex shader** berfungsi penuh di C++ QRhi pipeline.
+- **Compute shader (`QRhiComputePipeline`)** — **TERVERIFIKASI** support di OpenGL 4.6 GLES2 backend.
+  `QRhiComputePipeline::create()` sukses, dispatch bekerja, `imageStore` dengan `UsedWithLoadStore` berfungsi.
+- **Storage buffer (`QRhiBuffer::StorageBuffer`)** — API tersedia (`bufferLoadStore` binding + `StorageBuffer` usage),
+  tapi `imageStore` adalah jalur yang lebih stabil untuk komunikasi compute → fragment.
 - Pipeline tidak lagi dibatasi format `ShaderEffectSource` (RGBA8 clamp).
 - Internal textures: `RGBA16F` (velocity, advection, noise) dan `R32F` (pressure, divergence).
 
@@ -239,8 +243,9 @@ Detail matematika dan parameter default harus didokumentasikan di
 
 ### In Progress
 - [ ] Line rendering (spring dynamics, stateful particle system)
-- [ ] Phase 1: grid initialization + SSBO allocator
-- [ ] Phase 2: place_lines / draw_lines / draw_endpoints shaders
+- [x] Phase 0: QRhi Compute + imageStore diverifikasi berfungsi di GLES2 backend (2026-06-24)
+- [ ] Phase 1: Compute shader untuk spring dynamics particle update (imageStore ke texture)
+- [ ] Phase 2: place_lines / draw_lines / draw_endpoints shaders (compute + vertex + fragment)
 - [ ] Phase 3: C++ pipeline integration + display compositing
 
 ### Belum Dimulai
@@ -639,5 +644,12 @@ capture screenshot, analisis pixel numerik) → fix berurutan prioritas.
 
 **Remaining Known Gap**: Line rendering (flow_lines) masih menggunakan
 instantaneous velocity per-pixel (stateless). Referensi menggunakan
-spring-dynamics particle system dengan momentum (stateful). Ini gap
-fundamental yang butuh rethinking arsitektur line rendering.
+spring-dynamics particle system dengan momentum (stateful).
+
+**Dengan C++ QRhi pipeline, gap ini bisa diatasi:**
+- SSBO/storage buffer → line state (endpoint, velocity, color) persistent per basepoint
+- Multi-sampler binding → baca velocity field + line state dalam 1 pass
+- Compute shader dengan `imageStore` → update posisi spring dynamics, write ke texture
+- Compute `imageStore` terverifikasi berfungsi (2026-06-24).
+- SSBO `bufferLoadStore` API tersedia, tapi perlu diverifikasi runtime.
+- Alternatif: compute → imageStore ke texture → fragment shader baca texture (proven path).
