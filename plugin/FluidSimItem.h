@@ -1,16 +1,38 @@
 #pragma once
 #include <QQuickItem>
 #include <QQuickWindow>
-#include <QSGRenderNode>
-#include <QSGGeometryNode>
-#include <QSGOpaqueTextureMaterial>
+#include <QSGImageNode>
 #include <QSGTexture>
 #include <QtGui/rhi/qrhi.h>
 #include <QElapsedTimer>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+#include <QRunnable>
+#include <QThread>
+#include <QMutex>
+#include <QOpenGLFunctions>
 #include <memory>
 
 class FluidSimEngine;
+class FluidSimItem;
 class QTimer;
+
+class EngineStepJob : public QRunnable {
+public:
+    EngineStepJob(FluidSimEngine *engine, QRhi *ourRhi,
+                  QOpenGLContext *sharedCtx, QOffscreenSurface *fallbackSurface,
+                  FluidSimItem *item, float dt)
+        : m_engine(engine), m_ourRhi(ourRhi), m_sharedCtx(sharedCtx),
+          m_fallbackSurface(fallbackSurface), m_item(item), m_dt(dt) {}
+    void run() override;
+private:
+    FluidSimEngine *m_engine;
+    QRhi *m_ourRhi;
+    QOpenGLContext *m_sharedCtx;
+    QOffscreenSurface *m_fallbackSurface;
+    FluidSimItem *m_item;
+    float m_dt;
+};
 
 class FluidSimItem : public QQuickItem {
     Q_OBJECT
@@ -25,12 +47,15 @@ public:
 
     bool isRunning() const { return m_running; }
     void setRunning(bool r);
-
     int frameCount() const { return m_frameCount; }
     int simSize() const { return m_simSize; }
     void setSimSize(int s);
     int debugMode() const { return m_debugMode; }
     void setDebugMode(int mode);
+
+    void storeReadback(const QByteArray &data);
+    bool hasPendingReadback() const;
+    void setReadbackPending(bool p);
 
 signals:
     void runningChanged();
@@ -44,7 +69,8 @@ protected:
     void itemChange(ItemChange change, const ItemChangeData &value) override;
 
 private:
-    QSGGeometryNode *buildDisplayNode();
+    void initOurRhi();
+    void scheduleEngineStep();
 
 private slots:
     void onFrameTick();
@@ -56,27 +82,17 @@ private:
     int m_frameCount = 0;
     int m_simSize = 128;
     float m_pendingDt = 0.016f;
-    QRhi *m_rhi = nullptr;
     int m_debugMode = 0;
+
+    std::unique_ptr<QOffscreenSurface> m_fallbackSurface;
+    std::unique_ptr<QRhi> m_ourRhi;
+    QOpenGLContext *m_sharedCtx = nullptr;
+
+    // Readback display pipeline (only option that works with separate QRhi)
+    QMutex m_readbackMutex;
+    QByteArray m_readbackData;
+    std::atomic<bool> m_readbackPending{false};
 
     QElapsedTimer m_elapsed;
     qint64 m_lastTick = 0;
-};
-
-class FluidDisplayNode : public QSGRenderNode {
-public:
-    FluidDisplayNode(FluidSimEngine *engine, QRhi *rhi, float dt);
-    ~FluidDisplayNode();
-
-    void prepare() override;
-    void render(const RenderState *state) override;
-    void releaseResources() override;
-    RenderingFlags flags() const override { return {}; }
-    QRectF rect() const override { return {}; }
-
-    float m_dt = 0.016f;
-
-private:
-    FluidSimEngine *m_engine;
-    QRhi *m_rhi;
 };

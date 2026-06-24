@@ -1,5 +1,9 @@
+// Copyright 2025 — FluidSim: C++ QRhi fluid simulation QML plugin
+
 #include "FluidSimItem.h"
 #include "FluidSimEngine.h"
+#include <QSGImageNode>
+#include <QSGTexture>
 #include <QQuickWindow>
 #include <QTimer>
 
@@ -15,7 +19,6 @@ FluidSimItem::~FluidSimItem()
 {
     if (m_timer)
         m_timer->stop();
-    releaseResources();
 }
 
 void FluidSimItem::setRunning(bool r)
@@ -61,6 +64,55 @@ void FluidSimItem::setDebugMode(int mode)
     update();
 }
 
+void FluidSimItem::initOurRhi()
+{
+    if (m_ourRhi)
+        return;
+
+    if (!window())
+        return;
+
+    auto *iface = window()->rendererInterface();
+    if (!iface)
+        return;
+
+    auto *sgCtx = static_cast<QOpenGLContext *>(
+        iface->getResource(window(), QSGRendererInterface::OpenGLContextResource));
+    if (!sgCtx)
+        return;
+
+    auto *ourCtx = new QOpenGLContext();
+    ourCtx->setShareContext(sgCtx);
+    ourCtx->setFormat(sgCtx->format());
+    if (!ourCtx->create()) {
+        fprintf(stderr, "  ERROR: could not create shared GL context\n");
+        delete ourCtx;
+        return;
+    }
+    m_sharedCtx = ourCtx;
+
+    m_fallbackSurface = std::unique_ptr<QOffscreenSurface>(
+        QRhiGles2InitParams::newFallbackSurface(sgCtx->format()));
+
+    bool ok = m_sharedCtx->makeCurrent(m_fallbackSurface.get());
+    if (!ok) {
+        fprintf(stderr, "  ERROR: could not make our context current for QRhi init\n");
+        return;
+    }
+
+    QRhiGles2InitParams params;
+    params.fallbackSurface = m_fallbackSurface.get();
+    params.format = sgCtx->format();
+    m_ourRhi = std::unique_ptr<QRhi>(QRhi::create(QRhi::OpenGLES2, &params));
+    if (!m_ourRhi) {
+        fprintf(stderr, "  ERROR: could not create shared QRhi\n");
+        m_sharedCtx->doneCurrent();
+        return;
+    }
+
+    m_sharedCtx->doneCurrent();
+}
+
 void FluidSimItem::onFrameTick()
 {
     if (!window() || !m_running)
@@ -78,10 +130,22 @@ void FluidSimItem::onFrameTick()
 
     m_pendingDt = dt;
 
-    window()->update();
+    update();
+    scheduleEngineStep();
 
     m_frameCount++;
     emit frameCountChanged(m_frameCount);
+}
+
+void FluidSimItem::scheduleEngineStep()
+{
+    if (!m_ourRhi || !m_engine || !m_engine->isInitialized() || !m_sharedCtx)
+        return;
+
+    auto *job = new EngineStepJob(m_engine.get(), m_ourRhi.get(),
+                                  m_sharedCtx, m_fallbackSurface.get(),
+                                  this, m_pendingDt);
+    window()->scheduleRenderJob(job, QQuickWindow::AfterSwapStage);
 }
 
 QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
@@ -89,116 +153,122 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     if (!window())
         return nullptr;
 
-    auto *iface = window()->rendererInterface();
-    if (iface)
-        m_rhi = static_cast<QRhi *>(
-            iface->getResource(window(), QSGRendererInterface::RhiResource));
+    initOurRhi();
 
-    if (!m_engine)
+    if (!m_engine && m_ourRhi) {
         m_engine = std::make_unique<FluidSimEngine>();
-    if (!m_engine->isInitialized() && m_rhi) {
-        m_engine->init(m_rhi, m_simSize);
+        m_engine->init(m_ourRhi.get(), m_simSize);
     }
 
-    // --- Engine step node ---
-    if (!oldNode) {
-        auto *root = new QSGNode();
-        auto *engineNode = new FluidDisplayNode(m_engine.get(), m_rhi, m_pendingDt);
-        root->appendChildNode(engineNode);
-        root->appendChildNode(buildDisplayNode());
-        return root;
+    auto *imageNode = static_cast<QSGImageNode *>(oldNode);
+    if (!imageNode) {
+        imageNode = window()->createImageNode();
+        imageNode->setTextureCoordinatesTransform(QSGImageNode::NoTransform);
     }
 
-    for (int i = 0; i < oldNode->childCount(); ++i) {
-        auto *child = oldNode->childAtIndex(i);
-        if (child->type() == QSGNode::RenderNodeType) {
-            static_cast<FluidDisplayNode *>(child)->m_dt = m_pendingDt;
-        } else if (child->type() == QSGNode::GeometryNodeType) {
-            auto *gn = static_cast<QSGGeometryNode *>(child);
-            QSGGeometry *g = gn->geometry();
-            if (g) {
-                auto *v = g->vertexDataAsTexturedPoint2D();
-                float w = width(), h = height();
-                v[0].set(0, 0, 0, 0);
-                v[1].set(w, 0, 1, 0);
-                v[2].set(0, h, 0, 1);
-                v[3].set(w, h, 1, 1);
-                gn->markDirty(QSGNode::DirtyGeometry);
-            }
+    int ds = 2 * m_simSize;
+    imageNode->setRect(0, 0, width(), height());
+    imageNode->setSourceRect(QRectF(0, 0, ds, ds));
+
+    QImage img;
+    {
+        QMutexLocker lock(&m_readbackMutex);
+        if (m_readbackData.size() >= ds * ds * 4) {
+            img = QImage((const uchar*)m_readbackData.constData(),
+                         ds, ds, QImage::Format_RGBA8888).copy();
         }
     }
-
-    return oldNode;
-}
-
-QSGGeometryNode *FluidSimItem::buildDisplayNode()
-{
-    auto *g = new QSGGeometry(QSGGeometry::defaultAttributes_TexturedPoint2D(), 4, 6);
-    g->setDrawingMode(GL_TRIANGLES);
-    auto *v = g->vertexDataAsTexturedPoint2D();
-    float w = width(), h = height();
-    v[0].set(0, 0, 0, 0);
-    v[1].set(w, 0, 1, 0);
-    v[2].set(0, h, 0, 1);
-    v[3].set(w, h, 1, 1);
-    quint16 *idx = g->indexDataAsUShort();
-    idx[0] = 0; idx[1] = 1; idx[2] = 2;
-    idx[3] = 1; idx[4] = 2; idx[5] = 3;
-
-    auto *mat = new QSGOpaqueTextureMaterial();
-    if (m_engine->isInitialized() && m_engine->displayTex()) {
-        auto *tex = window()->createTextureFromRhiTexture(m_engine->displayTex(), {});
-        tex->setFiltering(QSGTexture::Nearest);
-        mat->setTexture(tex);
+    if (img.isNull()) {
+        img = QImage(ds, ds, QImage::Format_RGBA8888);
+        img.fill(QColor(15, 15, 30));
     }
+    auto *tex = window()->createTextureFromImage(img);
+    tex->setFiltering(QSGTexture::Nearest);
+    imageNode->setTexture(tex);
+    imageNode->setOwnsTexture(true);
 
-    auto *node = new QSGGeometryNode();
-    node->setGeometry(g);
-    node->setMaterial(mat);
-    node->setFlag(QSGNode::OwnsGeometry, true);
-    node->setFlag(QSGNode::OwnsMaterial, true);
-    return node;
+    return imageNode;
 }
 
 void FluidSimItem::releaseResources()
 {
-    if (m_engine) {
-        m_engine->releaseResources();
-        m_engine.reset();
-    }
+    m_engine.reset();
+    m_ourRhi.reset();
+    m_fallbackSurface.reset();
+    delete m_sharedCtx;
+    m_sharedCtx = nullptr;
 }
 
-void FluidSimItem::itemChange(ItemChange change, const ItemChangeData &)
+void FluidSimItem::itemChange(ItemChange, const ItemChangeData &)
 {
 }
 
-// ---- FluidDisplayNode ----
-
-FluidDisplayNode::FluidDisplayNode(FluidSimEngine *engine, QRhi *rhi, float dt)
-    : m_engine(engine), m_rhi(rhi), m_dt(dt)
+void FluidSimItem::storeReadback(const QByteArray &data)
 {
+    QMutexLocker lock(&m_readbackMutex);
+    m_readbackData = data;
 }
 
-FluidDisplayNode::~FluidDisplayNode()
+bool FluidSimItem::hasPendingReadback() const
 {
-    releaseResources();
+    return m_readbackPending;
 }
 
-void FluidDisplayNode::prepare()
+void FluidSimItem::setReadbackPending(bool p)
 {
-    if (!m_engine || !m_rhi)
+    m_readbackPending = p;
+}
+
+// ---- EngineStepJob ----
+
+void EngineStepJob::run()
+{
+    if (!m_engine || !m_ourRhi || !m_sharedCtx || !m_fallbackSurface)
         return;
 
-    QRhiCommandBuffer *cb = commandBuffer();
-    if (cb)
-        m_engine->step(cb, m_dt);
-}
+    if (m_sharedCtx->thread() != QThread::currentThread()) {
+        if (QOpenGLContext::currentContext() == m_sharedCtx)
+            m_sharedCtx->doneCurrent();
+        m_sharedCtx->moveToThread(QThread::currentThread());
+        m_fallbackSurface->moveToThread(QThread::currentThread());
+    }
 
-void FluidDisplayNode::render(const RenderState *)
-{
-}
+    QRhiCommandBuffer *cb = nullptr;
+    if (m_ourRhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
+        fprintf(stderr, "  STUCK: beginOffscreenFrame FAILED at engine frame %d\n", m_engine->frameCount());
+        return;
+    }
 
-void FluidDisplayNode::releaseResources()
-{
-    m_engine = nullptr;
+    int frame = m_engine->frameCount();
+    if (frame % 60 == 0)
+        fprintf(stderr, "  STEP frame=%d\n", frame);
+
+    m_engine->step(cb, m_dt);
+
+    if (m_engine->displayTex() && !m_item->hasPendingReadback()) {
+        m_item->setReadbackPending(true);
+        int ds = 2 * m_engine->fluidSize();
+        int px = ds * ds * 4;
+        auto *result = new QRhiReadbackResult();
+        QByteArray *outData = new QByteArray();
+        outData->resize(px);
+        result->completed = [item = m_item, result, outData, px, frame]() {
+            if (result->data.size() >= px) {
+                memcpy(outData->data(), result->data.constData(), px);
+                item->storeReadback(*outData);
+            } else {
+                fprintf(stderr, "  STUCK: readback data too small at frame %d (%d < %d)\n", frame, result->data.size(), px);
+            }
+            item->setReadbackPending(false);
+            delete outData;
+            delete result;
+        };
+        QRhiResourceUpdateBatch *rub = m_ourRhi->nextResourceUpdateBatch();
+        rub->readBackTexture(QRhiReadbackDescription(m_engine->displayTex()), result);
+        cb->resourceUpdate(rub);
+    } else if (m_item->hasPendingReadback() && frame % 60 == 0) {
+        fprintf(stderr, "  STUCK: readback still pending at frame %d\n", frame);
+    }
+
+    m_ourRhi->endOffscreenFrame();
 }

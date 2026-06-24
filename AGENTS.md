@@ -87,6 +87,7 @@ flux-quickshell/
 | Commit di setiap milestone                                                      | Hindari kehilangan progress jika session tertutup tidak sengaja                                             |
 | Nama file context: `AGENTS.md` (dengan S)                                       | Konvensi OpenCode — dibaca otomatis, beda dari `AGENT.md` yang tidak dikenali                               |
 | C++ plugin: QSGRenderNode + QSGSimpleTextureNode                                | `QSGRenderNode` draw tidak visible karena scissor test; `QSGSimpleTextureNode` wrapping `displayTex` via `createTextureFromRhiTexture()` adalah workaround yang terverifikasi |
+| `QQuickItem::update()` (bukan `window()->update()`) untuk animasi frame-by-frame | `window()->update()` di threaded mode tidak trigger sync, jadi `updatePaintNode()` tidak pernah dipanggil. `QQuickItem::update()` mark item dirty + trigger sync via `QQuickWindowPrivate::dirty(Content)`. |
 
 ---
 
@@ -97,8 +98,7 @@ flux-quickshell/
 - **Shader compile**: `qsb --glsl "440"` (bukan `--qt6`), karena ESSL 100 output tidak support `texelFetch`/`textureSize`.
 - **Engine (C++)** `FluidSimEngine`: Semua pipeline solver (advection, diffusion, pressure, noise) via QRhi draw commands.
   Multi-pass sequential dalam satu `QRhiCommandBuffer` via `beginPass`/`endPass` pairs.
-- **Display**: `FluidSimItem` (QQuickItem) → `QSGRenderNode` anak (step di `prepare()`) + `QSGSimpleTextureNode` anak (display).
-  Engine render ke `displayTex` (RGBA8 heatmap 128×128), QSGSimpleTextureNode sampel displayTex ke screen.
+- **Display**: `FluidSimItem` (QQuickItem) → own GL context (share dengan SG) + own QRhi. Engine step di `EngineStepJob` (QRunnable) via `QQuickWindow::AfterSwapStage`. Display readback `displayTex` → `QImage` → `QSGImageNode` di `updatePaintNode()`. Ini adalah satu-satunya pipeline stabil untuk separate QRhi architecture di Qt 6.11.
 - **Noise**: CPU-generated hash-based value noise (3 octave fbm), upload RGBA16F setiap frame.
 - **Uniform blocks**: Parameter hardcode di shader karena QSB strips `layout(binding=N)` dari GLSL 440 output,
   dan Qt RHI OpenGL backend tidak rekonstruksi dari SPIR-V reflection.
@@ -215,8 +215,35 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **Inject noise 1:1 reference**: `pass_inject_noise.frag` → linear sampler untuk noiseTex, UV-based sampling `gl_FragCoord.xy/velSize`, `timestep * noise` scaling (`(1/60) * noise`).
 - [x] **m_noiseMultiplier fixed** to 0.45 (match reference).
 
-### Belum Dimulai
+### Resolved (2026-06-24) — QSGRenderNode Crash + Display Pipeline
+- [x] **QSGRenderNode crash fixed**: QSGRenderNode with beginPass/endPass in prepare() crashes on all platforms (headless + desktop Hyprland). Fix: use own QRhi (shared GL context) via `EngineStepJob` (QRunnable) at `QQuickWindow::AfterSwapStage`.
+- [x] **Texture sharing across contexts verified**: No explicit sync (glFinish) needed — QRhi::endOffscreenFrame's glFlush is sufficient for shared GL context texture visibility on Mesa/AMD.
+
+### Resolved (2026-06-24 PM)
+- [x] **Display pipeline refactored for QSGImageNode**: `updatePaintNode()` now returns `QSGImageNode` from `window()->createImageNode()` instead of manual `QSGGeometryNode`. This is the KEY fix — nodes created via `QQuickWindow` factory methods (`createRectangleNode`, `createImageNode`) render correctly, while `new QSGGeometryNode()` or `new QSGSimpleTextureNode()` do NOT render in Qt 6.11 RHI mode.
+- [x] **Readback-based display pipeline**: EngineStepJob reads back displayTex (RGBA8 256×256) every frame via `readBackTexture()`. `storeReadback()` stores data thread-safely. `updatePaintNode()` creates QImage from readback data → `createTextureFromImage()` → set on QSGImageNode. This bridges our separate QRhi's texture to the SG's texture system, bypassing `createTextureFromRhiTexture()` which doesn't work across QRhi instances.
+- [x] **Readback throttling**: `m_readbackPending` atomic flag prevents readback queue buildup (only one in-flight readback at a time).
+
+### Resolved (2026-06-24 Night) — Direct Texture Sharing All Approaches Failed
+- [x] **`createTextureFromRhiTexture` cross-RHI crash confirmed**: crash (SIGABRT/SIGSEGV) saat digunakan dengan texture dari QRhi yang berbeda dari SG's Rhi. Tidak ada workaround via `getResource(RhiResource)` — pointer QRhi dari SG tetap crash.
+- [x] **`QRhiTexture::createFrom(NativeTexture)` crash**: membuat texture wrapper di SG's Rhi yang wrapping GL memory milik engine. `createTextureFromRhiTexture` return texture valid tapi SG render crash.
+- [x] **`QQuickWindowPrivate::createTextureFromNativeTexture` crash**: private API yang bikin QSGTexture dari native GLuint. Crash (SIGABRT) karena assertion internal Qt.
+- [x] **GPU blit (`QOpenGLExtraFunctions::glCopyImageSubData`) crash**: blit dari engine displayTex ke SG displayTex, lalu SG render dari texture tujuan. Crash di `createTextureFromRhiTexture`.
+- [x] **Kesimpulan**: Di Qt 6.11, tidak ada API (publik/private) yang bisa bikin QSGTexture wrapping native GL texture lintas QRhi instance. Readback-based display adalah satu-satunya pipeline yang stabil.
+- [x] **CPU ~32%** pada 60fps — overhead dari `createTextureFromImage()` tiap frame (create texture GPU baru + upload 256KB). Acceptable untuk screensaver. Grab analysis confirmed semua mode debug render benar, coverage 100%.
+
+### Resolved (2026-06-24 Late) — Animation Fix: `window()->update()` → `update()`
+- [x] **Root cause found**: `QQuickWindow::update()` in threaded mode doesn't trigger sync → `updatePaintNode()` never called → display shows first frame forever. Fix: call `QQuickItem::update()` which marks item as dirty, forcing sync + `updatePaintNode()` every frame.
+- [x] **Animation confirmed working**: interior pixel (64,64) evolves every frame (yellow→orange→red→orange) via heatmap display. Constant `000080ff` at (0,0) is correct — boundary velocity is always zero.
+- [x] **Debug logging removed**: noisy `ENGINE STEP` and `DISPLAY pixel` logs cleaned up.
+
+### In Progress
 - [ ] Line rendering (spring dynamics, stateful particle system)
+- [ ] Phase 1: grid initialization + SSBO allocator
+- [ ] Phase 2: place_lines / draw_lines / draw_endpoints shaders
+- [ ] Phase 3: C++ pipeline integration + display compositing
+
+### Belum Dimulai
 - [ ] Integrasi ke dots-hyprfork lockscreen (`LockScreen.qml` + `GlobalStates`)
 - [ ] Lock state machine (Flux mode vs Normal mode)
 - [ ] Quickshell FrameAnimation integration (replace timer-driven loop)
@@ -229,27 +256,17 @@ Detail matematika dan parameter default harus didokumentasikan di
 - 2025-06-17: Multi-sampler ShaderEffect bug di Qt 6.11 — setiap
   ShaderEffect hanya boleh punya SATU `sampler2D`. Tambahan sampler (kedua,
   ketiga) menyebabkan output flat tanpa error. **Tidak relevan untuk C++ plugin**.
-- 2025-06-17: 1 Jacobi pressure iteration menghasilkan ∇p ≈ 0 di
-  interior (numpy verified). Ini matematis benar, bukan bug.
 - 2025-06-22: QSB strips `layout(binding=N)` dari GLSL 440 output;
   Qt RHI OpenGL backend tidak rekonstruksi dari SPIR-V reflection.
   Workaround: hardcode semua parameter sebagai constant di shader.
-- 2025-06-22: `QSGRenderNode` draw tidak visible saat BoundedRectRendering.
-  Workaround: QSGSimpleTextureNode untuk display, QSGRenderNode hanya untuk engine step.
-- 2025-06-22: QSGTexture dari `createTextureFromRhiTexture()` tidak set ownership;
-  leak QSGTexture object (acceptable, <100 bytes).
-- 2025-06-22: **Topology bug fix**: `TriangleStrip` + `setTopology()` for all engine pipelines.
-  Also fixed QSGGeometryNode display quad index order `{0,1,2, 1,2,3}` for full coverage.
-- 2025-06-22: **QSGGeometryNode index order `{0,1,2, 0,2,3}` untuk `GL_TRIANGLES` hanya render 75%.**
-  Dua triangle share left edge (v0-v2), overlap di left 50%, miss right 50%. Fix: `{0,1,2, 1,2,3}`,
-  dua triangle share diagonal v1-v2, coverage 100%. Ditemukan via ImageMagick quadrant analysis.
-- 2025-06-22: **Diffuse boundary safety — bare `texelFetch(tex, pos+offset, 0)` tanpa clamp pada x=0 dengan offset=-1**
-  membaca dari address invalid → garbage memory → simulation blow-up. Fix: `clampPos()` matching reference's
-  `ClampToEdge` sampler. Shader lain diverifikasi aman (pakai `textureLodOffset` atau `texture()`).
-- 2025-06-22: **No-slip boundary HANYA di `subtract_gradient` (projection step)**, BUKAN di diffuse.
-  Diffuse pakai Neumann implicit (clamp sampler → du/dn=0). No-slip di `subtract_gradient` bersifat
-  **component-wise**: bc.x=0 di x-edges (zero x-velocity), bc.y=0 di y-edges (zero y-velocity).
-  `pass_subtract.frag` sudah benar sejak awal.
+- 2026-06-24: `QSGGeometryNode` dan `QSGSimpleTextureNode` yang dibuat manual dengan `new` TIDAK RENDER di Qt 6.11 RHI mode pada Hyprland/Wayland. Fix: gunakan `window()->createRectangleNode()` atau `window()->createImageNode()` untuk node yang render dengan benar.
+- 2026-06-24: `QQuickWindow::createTextureFromRhiTexture()` tidak bekerja untuk texture dari QRhi yang berbeda (separate context). Fix: readback→QImage→createTextureFromImage pipeline.
+- 2026-06-24: `QRhiTexture::createFrom(NativeTexture)` + `createTextureFromRhiTexture()` crash — membuat texture wrapper di SG's Rhi wrapping GL memory engine, lalu `createTextureFromRhiTexture()` return object valid tapi SG render crash (SIGSEGV/SIGABRT).
+- 2026-06-24: `QQuickWindowPrivate::createTextureFromNativeTexture()` crash (SIGABRT) — private API untuk bikin QSGTexture dari native GLuint gagal karena assertion internal Qt.
+- 2026-06-24: `QOpenGLExtraFunctions::glCopyImageSubData()` GPU blit approach crash — blit dari engine displayTex ke SG displayTex berhasil, tapi `createTextureFromRhiTexture` pada texture tujuan crash.
+- 2026-06-24: Readback-based display adalah satu-satunya pipeline yang stabil untuk separate QRhi architecture. CPU ~32% pada 60fps (overhead `createTextureFromImage()` upload 256KB/frame).
+- 2026-06-24: Qt 6.11 cleanup ordering bug: `releaseResources()` dipanggil dari item destructor setelah GL context di-destroy. Tidak fixable dari plugin side. Crash pada app exit saat `QRhi` destructor.
+- 2026-06-24: `QQuickWindow::update()` di threaded mode tidak trigger sync → `updatePaintNode()` tidak dipanggil. Fix: panggil `QQuickItem::update()` yang mark item dirty, forcing sync + `updatePaintNode()` setiap frame.
 
 ---
 
@@ -515,6 +532,29 @@ Jika tidak yakin → tandai eksplisit "perlu verifikasi", jangan confiden
 tanpa referensi konkret.
 
 ---
+
+## Session Summary (2026-06-23)
+
+### What was done
+- **QSGRenderNode engine step restored and finalized** (commit `ce63c96`):
+  - `FluidDisplayNode` (QSGRenderNode) drives `engine->step(cb, dt)` in `prepare()` using the scene graph's command buffer on the render thread
+  - `render()` is no-op (display handled by sibling `QSGGeometryNode` + `QSGOpaqueTextureMaterial`)
+  - Destructor no longer calls `releaseResources()` (avoids double-free — unique_ptr handles cleanup)
+  - `releaseResources()` resets engine early while GL context is valid
+- **Confirmed all alternative engine step approaches failed** in Qt 6.11 headless:
+  - `scheduleRenderJob` at all stages (BeforeSynchronizing, AfterSynchronizing, AfterSwap): `beginOffscreenFrame` returns false (frame already active on scene graph's RHI)
+  - `beforeRendering` signal: no `commandBuffer()` API in Qt 6.11 QQuickWindow
+  - Separate RHI with shared context: engine RHI's `beginOffscreenFrame` returns false (makeCurrent on fallback surface fails)
+  - GUI thread direct `beginOffscreenFrame`: qFatal abort
+- **Cleanup crash root cause identified**: Qt 6.11 calls `releaseResources()` from `QQuickItemPrivate::derefWindow()` during item destructor — AFTER the QQuickWindow's GL context is destroyed. Engine's `QRhiGraphicsPipeline` destructor crashes when calling into GL with no context. This is a Qt 6.11 ordering bug, not fixable from our side.
+
+### Pre-existing issues
+- **Qt 6.11 cleanup crash**: GL context destroyed before `releaseResources()` called on items. Crash at exit in `FluidSimEngine::releaseResources()` → `QRhiGraphicsPipeline::~QRhiGraphicsPipeline()`. Accept as pre-existing Qt bug.
+- **grabToImage works**: non-zero pixel images confirmed from sandbox (R mean 34, G mean 32, B mean 45). Occasional crash during grab is from QSGRenderNode state conflict with QSGRhiLayer::grab() in headless.
+
+### Next
+- Verify on desktop (Hyprland session) — QSGRenderNode should work without crashes on real GPU
+- Begin line rendering implementation (Phase 1: grid/SSBO, Phase 2: place/draw/endpoint shaders, Phase 3: C++ pipeline integration)
 
 ## Changelog
 

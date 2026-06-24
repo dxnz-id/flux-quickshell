@@ -40,6 +40,7 @@ endforeach()
 qt_add_qml_module(fluidsim
     URI FluidSim
     VERSION 1.0
+    OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FluidSim"
     # NO_GENERATE_PLUGIN_SOURCE  -- let cmake auto-generate plugin
     NO_PLUGIN_OPTIONAL
     CLASS_NAME FluidSimPlugin
@@ -52,7 +53,7 @@ qt_add_qml_module(fluidsim
         FluidSimShaders.cpp
 )
 
-set(QSB_DEST ${CMAKE_BINARY_DIR}/qml/FluidSim/shaders)
+set(QSB_DEST ${CMAKE_BINARY_DIR}/FluidSim/shaders)
 add_custom_command(
     OUTPUT ${QSB_DEST}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${QSB_DEST}

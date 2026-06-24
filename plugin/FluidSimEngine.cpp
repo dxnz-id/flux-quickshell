@@ -102,8 +102,11 @@ void FluidSimEngine::releaseResources()
     m_gpuNoiseBuf.reset();
 
     m_quadVertexBuf.reset();
+    m_testQuadVbuf.reset();
+    m_testInstanceBuf.reset();
 
     m_passNoise.srb.reset();
+    m_passTestInstancing.srb.reset();
     for (auto &p : m_passAdvection) p.srb.reset();
     m_passAdvectionRev.srb.reset();
     for (auto &p : m_passAdjust) p.srb.reset();
@@ -119,6 +122,7 @@ void FluidSimEngine::releaseResources()
     m_advectionFwdRT.reset(); m_advectionRevRT.reset();
     m_divergenceRT.reset(); m_noiseRT.reset();
     m_displayRT.reset();
+    m_displayTex.reset();
 
     m_passNoise.pipeline.reset();
     for (auto &p : m_passAdvection) p.pipeline.reset();
@@ -130,10 +134,12 @@ void FluidSimEngine::releaseResources()
     for (auto &p : m_passPressure) p.pipeline.reset();
     for (auto &a : m_passSubtract) for (auto &p : a) p.pipeline.reset();
     m_passDisplay.pipeline.reset();
+    m_passTestInstancing.pipeline.reset();
 
     m_rpDescRGBA16F.reset();
     m_rpDescR32F.reset();
     m_rpDescRGBA8.reset();
+
 
     m_rhi = nullptr;
     m_initialized = false;
@@ -240,6 +246,33 @@ void FluidSimEngine::createBuffers()
     m_directionBuf = makeBuf("direction", (int)sizeof(Direction), QRhiBuffer::UniformBuffer);
     m_pushConstantBuf = makeBuf("pushConstants", (int)sizeof(PushConstants), QRhiBuffer::UniformBuffer);
     m_gpuNoiseBuf = makeBuf("gpuNoise", (int)sizeof(GpuNoiseParams), QRhiBuffer::UniformBuffer);
+
+    // Test instancing buffers (upload as pendingQuadUploadBatch)
+    {
+        struct QuadV { float x, y; };
+        QuadV quadVerts[6] = {
+            {-0.4f, -0.4f}, {-0.4f, 0.4f}, {0.4f, 0.4f},
+            {0.4f, 0.4f}, {0.4f, -0.4f}, {-0.4f, -0.4f},
+        };
+        m_testQuadVbuf.reset(m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(quadVerts)));
+        m_testQuadVbuf->setName("testQuadVbuf");
+        m_testQuadVbuf->create();
+        if (!m_pendingQuadUploadBatch)
+            m_pendingQuadUploadBatch = m_rhi->nextResourceUpdateBatch();
+        m_pendingQuadUploadBatch->uploadStaticBuffer(m_testQuadVbuf.get(), QByteArray((const char*)quadVerts, sizeof(quadVerts)));
+
+        struct Inst { float col[4]; float off[2]; };
+        Inst instances[4] = {
+            {{1,0,0,1}, {-0.5f, -0.5f}},
+            {{0,1,0,1}, { 0.5f, -0.5f}},
+            {{0,0,1,1}, {-0.5f,  0.5f}},
+            {{1,1,0,1}, { 0.5f,  0.5f}},
+        };
+        m_testInstanceBuf.reset(m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(instances)));
+        m_testInstanceBuf->setName("testInstanceBuf");
+        m_testInstanceBuf->create();
+        m_pendingQuadUploadBatch->uploadStaticBuffer(m_testInstanceBuf.get(), QByteArray((const char*)instances, sizeof(instances)));
+    }
 
     float dt = m_fluidTimestep;
     float centerFactor = 1.0f / (m_viscosity * dt);
@@ -483,6 +516,35 @@ void FluidSimEngine::createDisplayPass()
     makeDisplayPipeline("display_frag", m_passDisplay);
     makeDisplayPipeline("display_debug", m_passDebug);
 
+    // Test instancing pipeline
+    {
+        QShader testVs = FluidSimShaders::loadShader("test_instancing_vs");
+        QShader testFs = FluidSimShaders::loadShader("test_instancing_fs");
+        m_passTestInstancing.srb.reset(buildBinding({}));
+        auto *pp = m_rhi->newGraphicsPipeline();
+        pp->setShaderStages({ { QRhiShaderStage::Vertex, testVs }, { QRhiShaderStage::Fragment, testFs } });
+        pp->setRenderPassDescriptor(m_rpDescRGBA8.get());
+        pp->setShaderResourceBindings(m_passTestInstancing.srb.get());
+        QRhiVertexInputLayout inputLayout;
+        inputLayout.setBindings({
+            QRhiVertexInputBinding(2 * sizeof(float)),
+            QRhiVertexInputBinding(24, QRhiVertexInputBinding::PerInstance),
+        });
+        inputLayout.setAttributes({
+            QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),
+            QRhiVertexInputAttribute(1, 1, QRhiVertexInputAttribute::Float4, 0),
+            QRhiVertexInputAttribute(1, 2, QRhiVertexInputAttribute::Float2, 16),
+        });
+        pp->setVertexInputLayout(inputLayout);
+        QRhiGraphicsPipeline::TargetBlend blend;
+        blend.enable = false;
+        pp->setTargetBlends({ blend });
+        pp->setTopology(QRhiGraphicsPipeline::Triangles);
+        pp->create();
+        m_passTestInstancing.pipeline.reset(pp);
+        fprintf(stderr, "  Test instancing pipeline created\n");
+    }
+
     fprintf(stderr, "  Display passes created (%dx%d RGBA8)\n", ds, ds);
 }
 
@@ -504,12 +566,8 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
     if (!m_initialized) return;
 
     // Collect all pending uploads to process at first beginPass
-    // Drop separately submitted batches; they'll execute at the first beginPass
-    // since QRhi defers resourceUpdate() outside a pass to the next beginPass
-
     for (auto *batch : {m_pendingUploadBatch, m_pendingDisplayUploadBatch, m_pendingQuadUploadBatch}) {
         if (batch) {
-            // Just submit here — QRhi defers to next beginPass internally
             cb->resourceUpdate(batch);
         }
     }
@@ -643,9 +701,28 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
                     m_divergenceTex.get(), m_nearestSampler.get()),
             }));
             break;
+        case 5: // Test — instancing colored quads
+            fprintf(stderr, "  MODE 5: drawing test quads\n");
+        {
+            cb->beginPass(m_displayRT.get(), QColor(0, 0, 0, 0), QRhiDepthStencilClearValue{1.0f, 0}, nullptr);
+            cb->setGraphicsPipeline(m_passTestInstancing.pipeline.get());
+            cb->setShaderResources(m_passTestInstancing.srb.get());
+            cb->setViewport(QRhiViewport(0, 0, float(ds), float(ds)));
+            QRhiCommandBuffer::VertexInput vbindings[2] = {
+                { m_testQuadVbuf.get(), 0 },
+                { m_testInstanceBuf.get(), 0 },
+            };
+            cb->setVertexInput(0, 2, vbindings);
+            cb->draw(6, 4);
+            cb->endPass();
         }
-        drawPass(cb, m_displayRT.get(), pipeline, srb.get(), ds, ds, nullptr);
+            break;
+        }
+        if (m_debugMode != 5) {
+            drawPass(cb, m_displayRT.get(), pipeline, srb.get(), ds, ds, nullptr);
+        }
     }
+
 }
 
 void FluidSimEngine::updateNoiseChannels(float dt)

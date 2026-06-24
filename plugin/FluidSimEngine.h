@@ -49,6 +49,10 @@ private:
     std::unique_ptr<QRhiBuffer> m_quadVertexBuf;
     QShader m_quadVertexShader;
 
+    // Test instancing buffers
+    std::unique_ptr<QRhiBuffer> m_testQuadVbuf;
+    std::unique_ptr<QRhiBuffer> m_testInstanceBuf;
+
     // Per-pass graphics pipelines (fragment shader based)
     PassPipeline m_passNoise;
     PassPipeline m_passAdvection[2]; // [0]=forward (reads vel[0]), [1]=(reads vel[1])
@@ -66,6 +70,7 @@ private:
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA8;
     PassPipeline m_passDisplay;      // heatmap (velocity → color)
     PassPipeline m_passDebug;        // bias+contrast (raw texture)
+    PassPipeline m_passTestInstancing; // instanced colored quads test
 
     // Render targets for solver passes (one per writable texture)
     std::unique_ptr<QRhiTextureRenderTarget> m_velRT[2];
