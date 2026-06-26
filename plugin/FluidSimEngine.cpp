@@ -104,13 +104,10 @@ void FluidSimEngine::releaseResources()
     m_gpuNoiseBuf.reset();
 
     m_quadVertexBuf.reset();
-    m_testQuadVbuf.reset();
-    m_testInstanceBuf.reset();
 
-    m_lineUpdateSrb[0].reset(); m_lineUpdateSrb[1].reset();
-    m_lineDrawSrb[0].reset(); m_lineDrawSrb[1].reset();
+    m_lineFrameComputeSrb.reset();
+    m_lineFrameDrawSrb.reset();
     m_passNoise.srb.reset();
-    m_passTestInstancing.srb.reset();
     for (auto &p : m_passAdvection) p.srb.reset();
     m_passAdvectionRev.srb.reset();
     for (auto &p : m_passAdjust) p.srb.reset();
@@ -132,6 +129,7 @@ void FluidSimEngine::releaseResources()
 
     m_lineUpdatePipeline.reset();
     m_lineDrawPipeline.reset();
+    m_lineBasepointBuf.reset();
     m_passNoise.pipeline.reset();
     for (auto &p : m_passAdvection) p.pipeline.reset();
     m_passAdvectionRev.pipeline.reset();
@@ -142,7 +140,6 @@ void FluidSimEngine::releaseResources()
     for (auto &p : m_passPressure) p.pipeline.reset();
     for (auto &a : m_passSubtract) for (auto &p : a) p.pipeline.reset();
     m_passDisplay.pipeline.reset();
-    m_passTestInstancing.pipeline.reset();
 
     m_rpDescRGBA16F.reset();
     m_rpDescR32F.reset();
@@ -256,33 +253,6 @@ void FluidSimEngine::createBuffers()
     m_directionBuf = makeBuf("direction", (int)sizeof(Direction), QRhiBuffer::UniformBuffer);
     m_pushConstantBuf = makeBuf("pushConstants", (int)sizeof(PushConstants), QRhiBuffer::UniformBuffer);
     m_gpuNoiseBuf = makeBuf("gpuNoise", (int)sizeof(GpuNoiseParams), QRhiBuffer::UniformBuffer);
-
-    // Test instancing buffers (upload as pendingQuadUploadBatch)
-    {
-        struct QuadV { float x, y; };
-        QuadV quadVerts[6] = {
-            {-0.4f, -0.4f}, {-0.4f, 0.4f}, {0.4f, 0.4f},
-            {0.4f, 0.4f}, {0.4f, -0.4f}, {-0.4f, -0.4f},
-        };
-        m_testQuadVbuf.reset(m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(quadVerts)));
-        m_testQuadVbuf->setName("testQuadVbuf");
-        m_testQuadVbuf->create();
-        if (!m_pendingQuadUploadBatch)
-            m_pendingQuadUploadBatch = m_rhi->nextResourceUpdateBatch();
-        m_pendingQuadUploadBatch->uploadStaticBuffer(m_testQuadVbuf.get(), QByteArray((const char*)quadVerts, sizeof(quadVerts)));
-
-        struct Inst { float col[4]; float off[2]; };
-        Inst instances[4] = {
-            {{1,0,0,1}, {-0.5f, -0.5f}},
-            {{0,1,0,1}, { 0.5f, -0.5f}},
-            {{0,0,1,1}, {-0.5f,  0.5f}},
-            {{1,1,0,1}, { 0.5f,  0.5f}},
-        };
-        m_testInstanceBuf.reset(m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(instances)));
-        m_testInstanceBuf->setName("testInstanceBuf");
-        m_testInstanceBuf->create();
-        m_pendingQuadUploadBatch->uploadStaticBuffer(m_testInstanceBuf.get(), QByteArray((const char*)instances, sizeof(instances)));
-    }
 
     float dt = m_fluidTimestep;
     float centerFactor = 1.0f / (m_viscosity * dt);
@@ -528,35 +498,6 @@ void FluidSimEngine::createDisplayPass()
     makeDisplayPipeline("display_frag", m_passDisplay);
     makeDisplayPipeline("display_debug", m_passDebug);
 
-    // Test instancing pipeline
-    {
-        QShader testVs = FluidSimShaders::loadShader("test_instancing_vs");
-        QShader testFs = FluidSimShaders::loadShader("test_instancing_fs");
-        m_passTestInstancing.srb.reset(buildBinding({}));
-        auto *pp = m_rhi->newGraphicsPipeline();
-        pp->setShaderStages({ { QRhiShaderStage::Vertex, testVs }, { QRhiShaderStage::Fragment, testFs } });
-        pp->setRenderPassDescriptor(m_rpDescRGBA8.get());
-        pp->setShaderResourceBindings(m_passTestInstancing.srb.get());
-        QRhiVertexInputLayout inputLayout;
-        inputLayout.setBindings({
-            QRhiVertexInputBinding(2 * sizeof(float)),
-            QRhiVertexInputBinding(24, QRhiVertexInputBinding::PerInstance),
-        });
-        inputLayout.setAttributes({
-            QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),
-            QRhiVertexInputAttribute(1, 1, QRhiVertexInputAttribute::Float4, 0),
-            QRhiVertexInputAttribute(1, 2, QRhiVertexInputAttribute::Float2, 16),
-        });
-        pp->setVertexInputLayout(inputLayout);
-        QRhiGraphicsPipeline::TargetBlend blend;
-        blend.enable = false;
-        pp->setTargetBlends({ blend });
-        pp->setTopology(QRhiGraphicsPipeline::Triangles);
-        pp->create();
-        m_passTestInstancing.pipeline.reset(pp);
-        fprintf(stderr, "  Test instancing pipeline created\n");
-    }
-
     fprintf(stderr, "  Display passes created (%dx%d RGBA8)\n", ds, ds);
 }
 
@@ -777,32 +718,53 @@ void FluidSimEngine::createLinePipelines()
         return;
     }
 
-    // Create ping-pong state textures (RGBA16F, LINE_GRID_COLS × LINE_GRID_ROWS)
+    int ds = 2 * m_fluidSize;  // 256
+    float fcols = floorf(float(ds) / 15.0f);
+    float frows = floorf(float(ds) / float(ds) * fcols);
+    m_lineGridCols = int(fcols) + 1;
+    m_lineGridRows = int(frows) + 1;
+    m_lineCount = m_lineGridCols * m_lineGridRows;
+    float gridSpacingUV = 1.0f / fcols;
+
+    int stateTexels = m_lineCount * 3;
+
+    fprintf(stderr, "  Lines: grid %dx%d = %d, state texels = %d\n",
+        m_lineGridCols, m_lineGridRows, m_lineCount, stateTexels);
+
+    // Create ping-pong state textures (RGBA16F, lineCount*3 x 1)
     for (int i = 0; i < 2; i++) {
         char name[16]; snprintf(name, sizeof(name), "lineState%d", i);
         m_lineStateTex[i].reset(m_rhi->newTexture(
-            QRhiTexture::RGBA16F, {LINE_GRID_COLS, LINE_GRID_ROWS}, 1,
+            QRhiTexture::RGBA16F, {stateTexels, 1}, 1,
             QRhiTexture::UsedWithLoadStore | QRhiTexture::UsedAsTransferSource));
         m_lineStateTex[i]->setName(name);
-        m_lineStateTex[i]->create();
+        if (!m_lineStateTex[i]->create()) {
+            fprintf(stderr, "  Lines: state tex %d FAILED\n", i);
+            return;
+        }
     }
 
-    // Initialize both textures with random small endpoint displacements
+    // Initialize state textures: endpoint=small random, velocity=0, color=(1,1,1,0), colorVel=0, width=0
     {
         QRhiCommandBuffer *cb = nullptr;
         if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
         QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
-        int texels = LINE_GRID_COLS * LINE_GRID_ROWS;
-        int rowBytes = LINE_GRID_COLS * 8;  // 8 bytes per RGBA16F texel
-        QByteArray initData(texels * 8, 0);
+        QByteArray initData(stateTexels * 8, 0);
         qfloat16 *hf = reinterpret_cast<qfloat16*>(initData.data());
-        for (int i = 0; i < texels; i++) {
+        for (int i = 0; i < m_lineCount; i++) {
+            int base = i * 12;  // 12 half-floats per line
             float a = (float(rand()) / RAND_MAX) * 2.0f * 3.14159f;
             float r = (float(rand()) / RAND_MAX) * 0.03f;
-            hf[i * 4 + 0] = qfloat16(cosf(a) * r);  // endpoint.x
-            hf[i * 4 + 1] = qfloat16(sinf(a) * r);  // endpoint.y
-            // hf[i*4+2]=0, hf[i*4+3]=0 already zeroed
+            hf[base + 0] = qfloat16(cosf(a) * r);  // endpoint.x
+            hf[base + 1] = qfloat16(sinf(a) * r);  // endpoint.y
+            // hf[base+2..3] = 0,0 (velocity)
+            hf[base + 4] = qfloat16(1.0f);  // color.r
+            hf[base + 5] = qfloat16(1.0f);  // color.g
+            hf[base + 6] = qfloat16(1.0f);  // color.b
+            hf[base + 7] = qfloat16(0.0f);  // color.a (opacity=0)
+            // hf[base+8..11] = 0,0,0,0 (colorVel, width)
         }
+        int rowBytes = stateTexels * 8;
         QRhiTextureSubresourceUploadDescription subdesc(initData, initData.size());
         subdesc.setDataStride(rowBytes);
         QRhiTextureUploadEntry entry(0, 0, subdesc);
@@ -835,6 +797,29 @@ void FluidSimEngine::createLinePipelines()
         m_rhi->endOffscreenFrame();
     }
 
+    // Create basepoint buffer (vec2[lineCount], PerInstance)
+    {
+        QByteArray bpData(m_lineCount * 8, 0);
+        float *bp = reinterpret_cast<float*>(bpData.data());
+        for (int r = 0; r < m_lineGridRows; r++) {
+            for (int c = 0; c < m_lineGridCols; c++) {
+                int idx = r * m_lineGridCols + c;
+                bp[idx * 2 + 0] = float(c) * gridSpacingUV;
+                bp[idx * 2 + 1] = float(r) * gridSpacingUV;
+            }
+        }
+        m_lineBasepointBuf.reset(m_rhi->newBuffer(
+            QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, m_lineCount * 8));
+        m_lineBasepointBuf->setName("lineBasepoints");
+        m_lineBasepointBuf->create();
+        QRhiCommandBuffer *cb = nullptr;
+        if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
+        QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
+        ub->uploadStaticBuffer(m_lineBasepointBuf.get(), bpData);
+        cb->resourceUpdate(ub);
+        m_rhi->endOffscreenFrame();
+    }
+
     // Load shaders
     QShader updateCs = FluidSimShaders::loadShader("line_update");
     if (!updateCs.isValid()) { fprintf(stderr, "  Lines: line_update.comp FAILED\n"); return; }
@@ -844,71 +829,85 @@ void FluidSimEngine::createLinePipelines()
     if (!drawFs.isValid()) { fprintf(stderr, "  Lines: draw_lines_fs.frag FAILED\n"); return; }
 
     // --- Compute pipeline (line_update) ---
-    // Two SRBs: one for each read index, both write to 1-readIdx
-    for (int ri = 0; ri < 2; ri++) {
+    // Use a temporary SRB for pipeline creation (just needs binding layout)
+    {
         auto srb = std::unique_ptr<QRhiShaderResourceBindings>(
             m_rhi->newShaderResourceBindings());
-        QVarLengthArray<QRhiShaderResourceBinding, 3> b;
-        b.append(QRhiShaderResourceBinding::sampledTexture(0,
-            QRhiShaderResourceBinding::ComputeStage,
-            m_velocityTex[0].get(), m_linearSampler.get()));
-        b.append(QRhiShaderResourceBinding::sampledTexture(1,
-            QRhiShaderResourceBinding::ComputeStage,
-            m_lineStateTex[ri].get(), m_nearestSampler.get()));
-        b.append(QRhiShaderResourceBinding::imageStore(2,
-            QRhiShaderResourceBinding::ComputeStage,
-            m_lineStateTex[1 - ri].get(), 0));
-        srb->setBindings(b.begin(), b.end());
+        srb->setBindings({
+            QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::ComputeStage,
+                m_velocityTex[0].get(), m_linearSampler.get()),
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::ComputeStage,
+                m_lineStateTex[0].get(), m_nearestSampler.get()),
+            QRhiShaderResourceBinding::imageStore(2, QRhiShaderResourceBinding::ComputeStage,
+                m_lineStateTex[1].get(), 0),
+        });
         srb->create();
-        m_lineUpdateSrb[ri] = std::move(srb);
-    }
-
-    m_lineUpdatePipeline.reset(m_rhi->newComputePipeline());
-    m_lineUpdatePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, updateCs));
-    m_lineUpdatePipeline->setShaderResourceBindings(m_lineUpdateSrb[0].get());
-    if (!m_lineUpdatePipeline->create()) {
-        fprintf(stderr, "  Lines: compute pipeline FAILED\n");
-        return;
+        m_lineUpdatePipeline.reset(m_rhi->newComputePipeline());
+        m_lineUpdatePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, updateCs));
+        m_lineUpdatePipeline->setShaderResourceBindings(srb.get());
+        if (!m_lineUpdatePipeline->create()) {
+            fprintf(stderr, "  Lines: compute pipeline FAILED\n");
+            return;
+        }
     }
 
     // --- Graphics pipeline (draw_lines) ---
-    // Create SRB with sampler binding (FS reads velocity texture)
-    for (int i = 0; i < 2; i++) {
-        auto srb = std::unique_ptr<QRhiShaderResourceBindings>(
-            m_rhi->newShaderResourceBindings());
-        QVarLengthArray<QRhiShaderResourceBinding, 1> b;
-        b.append(QRhiShaderResourceBinding::sampledTexture(0,
-            QRhiShaderResourceBinding::FragmentStage,
-            m_velocityTex[0].get(), m_nearestSampler.get()));
-        srb->setBindings(b.begin(), b.end());
-        srb->create();
-        m_lineDrawSrb[i] = std::move(srb);
-    }
+    m_lineFrameDrawSrb.reset();
+    m_lineFrameComputeSrb.reset();
 
     m_lineDrawPipeline.reset(m_rhi->newGraphicsPipeline());
+
+    // Create a dummy SRB for pipeline creation (bindings don't matter for layout)
+    auto dummySrb = std::unique_ptr<QRhiShaderResourceBindings>(
+        m_rhi->newShaderResourceBindings());
+    dummySrb->setBindings({
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::VertexStage,
+            m_velocityTex[0].get(), m_linearSampler.get()),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::VertexStage,
+            m_lineStateTex[0].get(), m_nearestSampler.get()),
+    });
+    dummySrb->create();
+
     m_lineDrawPipeline->setShaderStages({
         { QRhiShaderStage::Vertex, drawVs },
         { QRhiShaderStage::Fragment, drawFs } });
-    m_lineDrawPipeline->setShaderResourceBindings(m_lineDrawSrb[0].get());
+    m_lineDrawPipeline->setShaderResourceBindings(dummySrb.get());
     m_lineDrawPipeline->setRenderPassDescriptor(m_rpDescRGBA8.get());
+
+    // Vertex input: 2 bindings (vertex PerVertex + basepoint PerInstance)
     {
         QRhiVertexInputLayout inputLayout;
-        inputLayout.setBindings({ QRhiVertexInputBinding(2 * sizeof(float)) });
-        inputLayout.setAttributes({ QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0) });
+        inputLayout.setBindings({
+            QRhiVertexInputBinding(2 * sizeof(float)),                          // binding 0: PerVertex
+            QRhiVertexInputBinding(2 * sizeof(float), QRhiVertexInputBinding::PerInstance),  // binding 1: PerInstance
+        });
+        inputLayout.setAttributes({
+            QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),  // loc 0: aVertex
+            QRhiVertexInputAttribute(1, 1, QRhiVertexInputAttribute::Float2, 0),  // loc 1: aBasepoint
+        });
         m_lineDrawPipeline->setVertexInputLayout(inputLayout);
     }
-    m_lineDrawPipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
+
+    m_lineDrawPipeline->setTopology(QRhiGraphicsPipeline::Triangles);
+
+    // Additive blending (SrcAlpha, One) matching reference
     QRhiGraphicsPipeline::TargetBlend blend;
-    blend.enable = false;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::One;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::One;
     m_lineDrawPipeline->setTargetBlends({blend});
+
     m_linePipelineReady = m_lineDrawPipeline->create();
+
     if (!m_linePipelineReady) {
         fprintf(stderr, "  Lines: draw pipeline FAILED\n");
         return;
     }
 
     fprintf(stderr, "  Lines: pipelines OK (%dx%d=%d lines)\n",
-        LINE_GRID_COLS, LINE_GRID_ROWS, LINE_GRID_COLS * LINE_GRID_ROWS);
+        m_lineGridCols, m_lineGridRows, m_lineCount);
 }
 
 void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
@@ -917,28 +916,56 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
         return;
 
     int writeIdx = 1 - m_lineStateReadIdx;
+    int lineCount = m_lineCount;
+    int velIdx = m_velocityIndex;
 
     // 1. Compute pass: update particle state
+    // Build dynamic compute SRB with current velocity and state ping-pong
+    m_lineFrameComputeSrb.reset(m_rhi->newShaderResourceBindings());
+    m_lineFrameComputeSrb->setBindings({
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::ComputeStage,
+            m_velocityTex[velIdx].get(), m_linearSampler.get()),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::ComputeStage,
+            m_lineStateTex[m_lineStateReadIdx].get(), m_nearestSampler.get()),
+        QRhiShaderResourceBinding::imageStore(2, QRhiShaderResourceBinding::ComputeStage,
+            m_lineStateTex[writeIdx].get(), 0),
+    });
+    m_lineFrameComputeSrb->create();
+
     cb->beginComputePass();
     cb->setComputePipeline(m_lineUpdatePipeline.get());
-    cb->setShaderResources(m_lineUpdateSrb[m_lineStateReadIdx].get());
-    cb->dispatch(LINE_GRID_COLS, LINE_GRID_ROWS, 1);
+    cb->setShaderResources(m_lineFrameComputeSrb.get());
+    int workGroups = (lineCount + 63) / 64;
+    cb->dispatch(workGroups, 1, 1);
     cb->endComputePass();
 
-    // Flip state index
     m_lineStateReadIdx = writeIdx;
 
-    // 2. Render pass: draw fullscreen quad with line pipeline
+    // 2. Render pass: draw instanced lines
     int ds = 2 * m_fluidSize;
     cb->beginPass(m_displayRT.get(), QColor(0, 0, 0, 0), QRhiDepthStencilClearValue{1.0f, 0});
     cb->setGraphicsPipeline(m_lineDrawPipeline.get());
-    cb->setShaderResources(m_lineDrawSrb[0].get());
+
+    // Build dynamic draw SRB (velocity + state, bound to vertex stage)
+    m_lineFrameDrawSrb.reset(m_rhi->newShaderResourceBindings());
+    m_lineFrameDrawSrb->setBindings({
+        QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::VertexStage,
+            m_velocityTex[velIdx].get(), m_linearSampler.get()),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::VertexStage,
+            m_lineStateTex[m_lineStateReadIdx].get(), m_nearestSampler.get()),
+    });
+    m_lineFrameDrawSrb->create();
+    cb->setShaderResources(m_lineFrameDrawSrb.get());
+
     cb->setViewport(QRhiViewport(0, 0, float(ds), float(ds)));
-    {
-        QRhiCommandBuffer::VertexInput vi(m_quadVertexBuf.get(), 0);
-        cb->setVertexInput(0, 1, &vi);
-        cb->draw(4);
-    }
+
+    // Set 2 vertex bindings: vertex quad (PV) + basepoints (PI)
+    QRhiCommandBuffer::VertexInput vertBindings[2] = {
+        { m_lineVertexBuf.get(), 0 },
+        { m_lineBasepointBuf.get(), 0 },
+    };
+    cb->setVertexInput(0, 2, vertBindings);
+    cb->draw(6, lineCount);
     cb->endPass();
 }
 

@@ -1,8 +1,14 @@
 #version 440
-layout(binding = 0) uniform sampler2D uVel;
+layout(location = 0) in vec2 vVertex;
+layout(location = 1) in vec4 vColor;
+layout(location = 2) in float vLineOffset;
 layout(location = 0) out vec4 fragColor;
+
 void main() {
-    vec2 vel = texelFetch(uVel, ivec2(gl_FragCoord.xy * 0.5), 0).xy;
-    float speed = length(vel) * 4.0;
-    fragColor = vec4(speed, 0.0, 0.0, 1.0);
+    float fade = smoothstep(vLineOffset, 1.0, vVertex.y);
+    float edgeWidth = fwidth(vVertex.x);
+    float xOff = abs(vVertex.x);
+    float smoothEdges = 1.0 - smoothstep(0.5 - edgeWidth, 0.5, xOff);
+    float a = vColor.a * fade * smoothEdges;
+    fragColor = vec4(vColor.rgb * a, a);
 }

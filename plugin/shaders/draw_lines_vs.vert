@@ -1,7 +1,42 @@
 #version 440
 layout(location = 0) in vec2 aVertex;
-layout(location = 0) out vec2 vPos;
+layout(location = 1) in vec2 aBasepoint;
+
+layout(binding = 0) uniform sampler2D uVelTex;
+layout(binding = 1) uniform sampler2D uStateTex;
+
+layout(location = 0) out vec2 vVertex;
+layout(location = 1) out vec4 vColor;
+layout(location = 2) out float vLineOffset;
+
+const float ASPECT = 1.0;
+const float ZOOM = 1.6;
+const float LINE_WIDTH = 0.015;
+const float LINE_BEGIN_OFFSET = 0.4;
+
 void main() {
-    gl_Position = vec4(aVertex, 0.0, 1.0);
-    vPos = aVertex;
+    int idx = gl_InstanceIndex;
+    int base = idx * 3;
+    ivec2 p0 = ivec2(base + 0, 0);
+
+    vec4 t0 = texelFetch(uStateTex, p0, 0);
+    vec2 endpoint = t0.xy;
+
+    vec4 color = texelFetch(uStateTex, ivec2(base + 1, 0), 0);
+    float width = texelFetch(uStateTex, ivec2(base + 2, 0), 0).w;
+
+    vec2 xBasis = vec2(-endpoint.y, endpoint.x);
+    xBasis /= max(length(xBasis), 1e-10);
+
+    vec2 point = vec2(ASPECT, 1.0) * ZOOM * (aBasepoint * 2.0 - 1.0)
+        + endpoint * aVertex.y
+        + LINE_WIDTH * width * xBasis * aVertex.x;
+    point.x /= ASPECT;
+
+    float shortLineBoost = 1.0 + (LINE_WIDTH * width) / max(length(endpoint), 1e-10);
+    vLineOffset = LINE_BEGIN_OFFSET / shortLineBoost;
+    vVertex = aVertex;
+    vColor = color;
+
+    gl_Position = vec4(point, 0.0, 1.0);
 }

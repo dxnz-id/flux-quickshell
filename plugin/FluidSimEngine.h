@@ -52,10 +52,6 @@ private:
     std::unique_ptr<QRhiBuffer> m_quadVertexBuf;
     QShader m_quadVertexShader;
 
-    // Test instancing buffers
-    std::unique_ptr<QRhiBuffer> m_testQuadVbuf;
-    std::unique_ptr<QRhiBuffer> m_testInstanceBuf;
-
     // Per-pass graphics pipelines (fragment shader based)
     PassPipeline m_passNoise;
     PassPipeline m_passAdvection[2]; // [0]=forward (reads vel[0]), [1]=(reads vel[1])
@@ -73,20 +69,19 @@ private:
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA8;
     PassPipeline m_passDisplay;      // heatmap (velocity → color)
     PassPipeline m_passDebug;        // bias+contrast (raw texture)
-    PassPipeline m_passTestInstancing; // instanced colored quads test
 
     // Line rendering (spring dynamics particles)
-    static constexpr int LINE_GRID_COLS = 9;
-    static constexpr int LINE_GRID_ROWS = 9;
-    static constexpr int LINE_GRID_SPACING = 15;
-    std::unique_ptr<QRhiTexture> m_lineStateTex[2];  // RGBA16F ping-pong (9x9)
+    int m_lineGridCols = 0;
+    int m_lineGridRows = 0;
+    int m_lineCount = 0;
+    std::unique_ptr<QRhiTexture> m_lineStateTex[2];  // RGBA16F ping-pong (lineCount*3, 1)
     std::unique_ptr<QRhiBuffer> m_lineVertexBuf;      // 6 vec2 quad vertices
+    std::unique_ptr<QRhiBuffer> m_lineBasepointBuf;   // vec2[lineCount] PerInstance
     std::unique_ptr<QRhiComputePipeline> m_lineUpdatePipeline;
-    std::unique_ptr<QRhiShaderResourceBindings> m_lineUpdateSrb[2]; // indexed by read idx
     std::unique_ptr<QRhiGraphicsPipeline> m_lineDrawPipeline;
-    std::unique_ptr<QRhiShaderResourceBindings> m_lineDrawSrb[2]; // one per state texture
-    std::unique_ptr<QRhiShaderResourceBindings> m_lineEmptySrb;    // empty SRB for no-binding shaders
-    int m_lineStateReadIdx = 0;  // ping-pong: read from this, write to 1-this
+    std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameComputeSrb;  // rebuilt each frame in stepLines
+    std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameDrawSrb;     // rebuilt each frame in stepLines
+    int m_lineStateReadIdx = 0;
     bool m_linePipelineReady = false;
 
     // Render targets for solver passes (one per writable texture)
