@@ -53,9 +53,11 @@ struct LineUniforms {
     float line_begin_offset;
     float line_variance;
     float delta_time;
-    float grid_cols;   // floor(displaySize / gridSpacing), before +1
-    float grid_spacing;
-    float _pad[3];
+    float grid_cols;     // fcols = floor(logicalW / 15)
+    float grid_rows;     // frows = floor(logicalH / logicalW * fcols)
+    float grid_spacing_x; // 1.0 / fcols
+    float grid_spacing_y; // 1.0 / frows
+    float _pad0;
 };
 static_assert(sizeof(LineUniforms) == 48, "LineUniforms must be 48 bytes");
 #pragma pack(pop)
@@ -991,9 +993,13 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     lu.line_begin_offset = 0.4f;
     lu.line_variance = 0.55f;
     lu.delta_time = 1.0f / 60.0f;
-    lu.grid_cols = float(m_lineGridCols - 1);
-    lu.grid_spacing = 1.0f / float(m_lineGridCols - 1);
-    memset(lu._pad, 0, sizeof(lu._pad));
+    float fcols = float(m_lineGridCols - 1);
+    float frows = float(m_lineGridRows - 1);
+    lu.grid_cols = fcols;
+    lu.grid_rows = frows;
+    lu.grid_spacing_x = 1.0f / fcols;
+    lu.grid_spacing_y = 1.0f / frows;
+    lu._pad0 = 0.0f;
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_lineUniformBuf.get(), QByteArray((const char*)&lu, sizeof(lu)));
     cb->resourceUpdate(ub);
