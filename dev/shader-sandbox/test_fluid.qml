@@ -72,9 +72,10 @@ Window {
 
     /* ── Grab for manual check ── */
     Timer {
-        interval: 3000; running: true; repeat: false
+        interval: 5000; running: true; repeat: false
         onTriggered: {
-            sim.grabToImage(function(r) { r.saveToFile("/tmp/flux_sandbox_grab.png"); });
+            sim.grabToImage(function(r) { r.saveToFile("/tmp/flux_sandbox_grab.png");
+                console.log("GRAB saved: " + r.size().width + "x" + r.size().height); });
         }
     }
 }

@@ -188,6 +188,7 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         if (m_readbackData.size() >= ds * ds * 4) {
             img = QImage((const uchar*)m_readbackData.constData(),
                          ds, ds, QImage::Format_RGBA8888).copy();
+
         }
     }
     if (img.isNull()) {

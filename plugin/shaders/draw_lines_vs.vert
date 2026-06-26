@@ -13,10 +13,10 @@ layout(binding = 2, std140) uniform LineUniforms {
     float uLineVariance;
     float uDeltaTime;
     float uGridCols;
-    float uGridSpacing;
-    float _pad0;
-    float _pad1;
-    float _pad2;
+    float uGridRows;
+    float uGridSpacingX;
+    float uGridSpacingY;
+    float uPad0;
 };
 
 layout(location = 0) out vec2 vVertex;
@@ -26,13 +26,16 @@ layout(location = 2) out float vLineOffset;
 void main() {
     int idx = gl_InstanceIndex;
     int base = idx * 3;
-    ivec2 p0 = ivec2(base + 0, 0);
+    int texW = 256;
+    ivec2 p0 = ivec2(base % texW, base / texW);
+    ivec2 p1 = ivec2((base + 1) % texW, (base + 1) / texW);
+    ivec2 p2 = ivec2((base + 2) % texW, (base + 2) / texW);
 
     vec4 t0 = texelFetch(uStateTex, p0, 0);
     vec2 endpoint = t0.xy;
 
-    vec4 color = texelFetch(uStateTex, ivec2(base + 1, 0), 0);
-    float width = texelFetch(uStateTex, ivec2(base + 2, 0), 0).w;
+    vec4 color = texelFetch(uStateTex, p1, 0);
+    float width = texelFetch(uStateTex, p2, 0).w;
 
     vec2 xBasis = vec2(-endpoint.y, endpoint.x);
     xBasis /= max(length(xBasis), 1e-10);

@@ -241,12 +241,15 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **Animation confirmed working**: interior pixel (64,64) evolves every frame (yellow→orange→red→orange) via heatmap display. Constant `000080ff` at (0,0) is correct — boundary velocity is always zero.
 - [x] **Debug logging removed**: noisy `ENGINE STEP` and `DISPLAY pixel` logs cleaned up.
 
-### In Progress
-- [ ] Line rendering (spring dynamics, stateful particle system)
+### Selesai (Line Rendering)
 - [x] Phase 0: QRhi Compute + imageStore diverifikasi berfungsi di GLES2 backend (2026-06-24)
-- [ ] Phase 1: Compute shader untuk spring dynamics particle update (imageStore ke texture)
-- [ ] Phase 2: place_lines / draw_lines / draw_endpoints shaders (compute + vertex + fragment)
-- [ ] Phase 3: C++ pipeline integration + display compositing
+- [x] Phase 1: Compute shader untuk spring dynamics particle update (imageStore ke texture)
+- [x] Phase 2: draw_lines shaders (instanced vertex + fragment, matching flux reference)
+- [x] Phase 3: C++ pipeline integration + additive blend compositing ke displayTex
+
+### In Progress
+- [ ] Line rendering visual tuning (opacity threshold, color response, variance)
+- [ ] Quickshell integration (dot hyprfork lockscreen)
 
 ### Belum Dimulai
 - [ ] Integrasi ke dots-hyprfork lockscreen (`LockScreen.qml` + `GlobalStates`)
@@ -273,6 +276,7 @@ Detail matematika dan parameter default harus didokumentasikan di
 - 2026-06-24: Qt 6.11 cleanup ordering bug: `releaseResources()` dipanggil dari item destructor setelah GL context di-destroy. Tidak fixable dari plugin side. Crash pada app exit saat `QRhi` destructor.
 - 2026-06-24: `QQuickWindow::update()` di threaded mode tidak trigger sync → `updatePaintNode()` tidak dipanggil. Fix: panggil `QQuickItem::update()` yang mark item dirty, forcing sync + `updatePaintNode()` setiap frame.
 - 2026-06-25: **QSB loading priority bug**: `FluidSimShaders::loadShader()` searches `applicationDirPath() + "/shaders/"` FIRST. Sandbox app (`dev/shader-sandbox/build/shader_sandbox`) has old QSB copies in its own `build/shaders/` dir that take priority over newly compiled ones in `plugin/build/FluidSim/shaders/`. Fix: sandbox CMake copies from plugin build dir (`../../plugin/build/FluidSim/shaders/`) instead of stale `shaders/compiled/`. **If you change shaders and the app still shows old behavior, check that QSB files in the sandbox build dir are updated.**
+- 2026-06-26: **Tiled texture layout required for state texture**: Line state texture must use `{256, texH}` format, NOT `{stateTexels, 1}` (very wide 1-row). `texelFetch` in vertex shader returns zeros when texture width exceeds implementation-dependent threshold on GLES2 backend. Always tile state textures to max width 256.
 
 ---
 
@@ -654,3 +658,32 @@ spring-dynamics particle system dengan momentum (stateful).
 - Compute `imageStore` terverifikasi berfungsi (2026-06-24).
 - SSBO `bufferLoadStore` API tersedia, tapi perlu diverifikasi runtime.
 - Alternatif: compute → imageStore ke texture → fragment shader baca texture (proven path).
+
+## Session Summary (2026-06-26) — Line Rendering Complete
+
+### Root cause: `texelFetch` in vertex shader returns zeros with very-wide 1-row texture
+Line state texture was `{stateTexels, 1}` with `stateTexels = m_lineCount * 3` (up to 28416).
+`texelFetch(uStateTex, ivec2(base, 0), 0)` returned `(0, 0, 0, 0)` for all texels when the
+texture width > some threshold (likely related to GL `GL_TEXTURE_2D` implementation limits
+or alignment in Qt RHI GLES2 backend).
+
+**Fix**: Change texture to tiled layout `{256, texH}` with `texH = ceil(stateTexels / 256)`.
+Update both compute and vertex shaders to compute texel coordinates as:
+```glsl
+int texW = 256;
+ivec2 p0 = ivec2(base % texW, base / texW);
+```
+
+### Previous attempts that failed
+- `UsedAsSampledTexture` flag: doesn't exist in Qt 6.11 QRhi (all textures sampled by default)
+- GPU blit / texture copy: Qt 6.11 crash bug
+- Computing with endpoint values: produced correct positions but `texelFetch` returned zero
+- Dummy `texelFetch` calls worked fine; only using the RETURNED values exposed the bug
+
+### Verified working
+- Compute → imageStore writes visible to draw → texelFetch reads (via swap in same command buffer)
+- No explicit memory barrier needed in Qt 6.11 GLES2 backend between compute imageStore and vertex texelFetch
+- Additive blend (SrcAlpha, One) with non-premultiplied fragment output
+- Instanced draw with `gl_InstanceIndex` + texelFetch-based per-instance state reading
+- Full spring-dynamics simulation (velocity-driven endpoint, color, width, opacity)
+- Display readback at frame 120: mean=(22.3 13.4 21.7 37.9) max=(255 255 255)

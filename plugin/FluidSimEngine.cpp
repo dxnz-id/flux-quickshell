@@ -862,12 +862,14 @@ void FluidSimEngine::createLinePipelines()
 void FluidSimEngine::initLineState()
 {
     int stateTexels = m_lineCount * 3;
+    int texW = 256;
+    int texH = (stateTexels + texW - 1) / texW;
 
     // Create ping-pong state textures
     for (int i = 0; i < 2; i++) {
         char name[16]; snprintf(name, sizeof(name), "lineState%d", i);
         m_lineStateTex[i].reset(m_rhi->newTexture(
-            QRhiTexture::RGBA16F, {stateTexels, 1}, 1,
+            QRhiTexture::RGBA16F, {texW, texH}, 1,
             QRhiTexture::UsedWithLoadStore | QRhiTexture::UsedAsTransferSource));
         m_lineStateTex[i]->setName(name);
         m_lineStateTex[i]->create();
@@ -877,20 +879,23 @@ void FluidSimEngine::initLineState()
     QRhiCommandBuffer *cb = nullptr;
     if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
-    QByteArray initData(stateTexels * 8, 0);
+    QByteArray initData(texW * texH * 8, 0);
     qfloat16 *hf = reinterpret_cast<qfloat16*>(initData.data());
     for (int i = 0; i < m_lineCount; i++) {
         int base = i * 12;
+        int row = (i * 3) / texW;
+        int col = (i * 3) % texW;
+        int dataBase = (row * texW + col) * 4;
         float a = (float(rand()) / RAND_MAX) * 2.0f * 3.14159f;
         float r = (float(rand()) / RAND_MAX) * 0.03f;
-        hf[base + 0] = qfloat16(cosf(a) * r);
-        hf[base + 1] = qfloat16(sinf(a) * r);
-        hf[base + 4] = qfloat16(1.0f);
-        hf[base + 5] = qfloat16(1.0f);
-        hf[base + 6] = qfloat16(1.0f);
-        hf[base + 7] = qfloat16(0.0f);
+        hf[dataBase + 0] = qfloat16(cosf(a) * r);
+        hf[dataBase + 1] = qfloat16(sinf(a) * r);
+        hf[dataBase + 4] = qfloat16(1.0f);
+        hf[dataBase + 5] = qfloat16(1.0f);
+        hf[dataBase + 6] = qfloat16(1.0f);
+        hf[dataBase + 7] = qfloat16(0.0f);
     }
-    int rowBytes = stateTexels * 8;
+    int rowBytes = texW * 8;
     QRhiTextureSubresourceUploadDescription subdesc(initData, initData.size());
     subdesc.setDataStride(rowBytes);
     QRhiTextureUploadEntry entry(0, 0, subdesc);
@@ -903,14 +908,15 @@ void FluidSimEngine::initLineState()
 
 void FluidSimEngine::initBasepoints()
 {
-    float gridSpacingUV = 1.0f / float(m_lineGridCols - 1);
+    float gsx = 1.0f / float(m_lineGridCols - 1);
+    float gsy = 1.0f / float(m_lineGridRows - 1);
     QByteArray bpData(m_lineCount * 8, 0);
     float *bp = reinterpret_cast<float*>(bpData.data());
     for (int r = 0; r < m_lineGridRows; r++) {
         for (int c = 0; c < m_lineGridCols; c++) {
             int idx = r * m_lineGridCols + c;
-            bp[idx * 2 + 0] = float(c) * gridSpacingUV;
-            bp[idx * 2 + 1] = float(r) * gridSpacingUV;
+            bp[idx * 2 + 0] = float(c) * gsx;
+            bp[idx * 2 + 1] = float(r) * gsy;
         }
     }
     m_lineBasepointBuf.reset(m_rhi->newBuffer(

@@ -35,9 +35,10 @@ void main() {
     if (idx >= lineCount) return;
 
     int base = idx * 3;
-    ivec2 p0 = ivec2(base + 0, 0);
-    ivec2 p1 = ivec2(base + 1, 0);
-    ivec2 p2 = ivec2(base + 2, 0);
+    int texW = 256;
+    ivec2 p0 = ivec2(base % texW, base / texW);
+    ivec2 p1 = ivec2((base + 1) % texW, (base + 1) / texW);
+    ivec2 p2 = ivec2((base + 2) % texW, (base + 2) / texW);
 
     vec4 t0 = texelFetch(uStateTex, p0, 0);
     vec2 endpoint = t0.xy;
@@ -49,8 +50,12 @@ void main() {
 
     float col = mod(float(idx), gp1);
     float row = floor(float(idx) / gp1);
-    vec2 baseUV = vec2(col * uGridSpacingX, row * uGridSpacingY);
-    vec2 vel = texture(uVelTex, baseUV).xy;
+    ivec2 velSize = textureSize(uVelTex, 0);
+    ivec2 velPos = ivec2(
+        min(int(col), velSize.x - 1),
+        min(int(row), velSize.y - 1)
+    );
+    vec2 vel = texelFetch(uVelTex, velPos, 0).xy;
 
     float noise = hash(vec3(col * 0.1, row * 0.07, 0.0));
     float variance = mix(1.0 - uLineVariance, 1.0, 0.5 + 0.5 * noise);
