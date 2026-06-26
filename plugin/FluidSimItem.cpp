@@ -158,6 +158,7 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     if (!m_engine && m_ourRhi) {
         m_engine = std::make_unique<FluidSimEngine>();
         m_engine->init(m_ourRhi.get(), m_simSize);
+        m_engine->setDebugMode(m_debugMode);
     }
 
     auto *imageNode = static_cast<QSGImageNode *>(oldNode);

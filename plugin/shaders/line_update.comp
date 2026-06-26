@@ -1,0 +1,38 @@
+#version 440
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) uniform sampler2D uVelTex;
+layout(binding = 1) uniform sampler2D uStateTex;
+layout(binding = 2, rgba16f) writeonly uniform image2D uOutImg;
+
+const float GRID_SPACING = 15.0;
+const float SIM_SIZE = 128.0;
+const float GRID_COLS = 9.0;
+const float GRID_ROWS = 9.0;
+const float LINE_LENGTH = 0.3;
+const float LINE_WIDTH = 0.02;
+const float LINE_VARIANCE = 0.55;
+const float DT = 0.016667;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (pos.x >= int(GRID_COLS) || pos.y >= int(GRID_ROWS))
+        return;
+
+    vec2 baseUV = (vec2(pos) + 0.5) * GRID_SPACING / SIM_SIZE;
+    vec2 vel = texture(uVelTex, baseUV).xy;
+
+    vec4 state = texelFetch(uStateTex, pos, 0);
+    vec2 endpoint = state.rg;
+    vec2 velocity = state.ba;
+
+    float variance = mix(1.0 - LINE_VARIANCE, 1.0, 0.5);
+    float deltaBoost = mix(3.0, 25.0, 1.0 - variance);
+    float momentumBoost = mix(3.0, 5.0, variance);
+
+    vec2 newVel = (1.0 - DT * momentumBoost) * velocity
+        + (LINE_LENGTH * vel - endpoint) * deltaBoost * DT;
+    vec2 newEndpoint = endpoint + DT * newVel;
+
+    imageStore(uOutImg, pos, vec4(newEndpoint, newVel));
+}

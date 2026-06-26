@@ -272,6 +272,7 @@ Detail matematika dan parameter default harus didokumentasikan di
 - 2026-06-24: Readback-based display adalah satu-satunya pipeline yang stabil untuk separate QRhi architecture. CPU ~32% pada 60fps (overhead `createTextureFromImage()` upload 256KB/frame).
 - 2026-06-24: Qt 6.11 cleanup ordering bug: `releaseResources()` dipanggil dari item destructor setelah GL context di-destroy. Tidak fixable dari plugin side. Crash pada app exit saat `QRhi` destructor.
 - 2026-06-24: `QQuickWindow::update()` di threaded mode tidak trigger sync → `updatePaintNode()` tidak dipanggil. Fix: panggil `QQuickItem::update()` yang mark item dirty, forcing sync + `updatePaintNode()` setiap frame.
+- 2026-06-25: **QSB loading priority bug**: `FluidSimShaders::loadShader()` searches `applicationDirPath() + "/shaders/"` FIRST. Sandbox app (`dev/shader-sandbox/build/shader_sandbox`) has old QSB copies in its own `build/shaders/` dir that take priority over newly compiled ones in `plugin/build/FluidSim/shaders/`. Fix: sandbox CMake copies from plugin build dir (`../../plugin/build/FluidSim/shaders/`) instead of stale `shaders/compiled/`. **If you change shaders and the app still shows old behavior, check that QSB files in the sandbox build dir are updated.**
 
 ---
 

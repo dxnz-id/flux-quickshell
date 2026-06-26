@@ -82,7 +82,7 @@ private:
     int m_frameCount = 0;
     int m_simSize = 128;
     float m_pendingDt = 0.016f;
-    int m_debugMode = 0;
+    int m_debugMode = 5;
 
     std::unique_ptr<QOffscreenSurface> m_fallbackSurface;
     std::unique_ptr<QRhi> m_ourRhi;

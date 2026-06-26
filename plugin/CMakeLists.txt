@@ -17,7 +17,7 @@ foreach(vert ${VERTEX_SHADERS})
     add_custom_command(
         OUTPUT ${qsb_output}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/shaders
-        COMMAND ${QSB_TOOL} --qt6 ${vert} -o ${qsb_output}
+        COMMAND ${QSB_TOOL} --glsl "440" ${vert} -o ${qsb_output}
         MAIN_DEPENDENCY ${vert}
         COMMENT "Baking ${name}.vert -> ${name}.qsb"
     )

@@ -30,7 +30,7 @@ Window {
             horizontalCenter: parent.horizontalCenter
         }
         spacing: 6
-        property int selected: 0  // Normal
+        property int selected: 5  // Lines
 
         Repeater {
             model: ["Normal", "Noise", "Fluid", "Pressure", "Divergence", "Lines"]

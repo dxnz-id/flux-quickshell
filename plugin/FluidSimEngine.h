@@ -37,6 +37,8 @@ private:
     void createRenderTargets();
     void initNoiseChannels();
     void testComputeAndSSBO();
+    void createLinePipelines();
+    void stepLines(QRhiCommandBuffer *cb);
     void updateNoiseChannels(float dt);
 
     QRhiShaderResourceBindings *buildBinding(std::initializer_list<QRhiShaderResourceBinding> list);
@@ -72,6 +74,20 @@ private:
     PassPipeline m_passDisplay;      // heatmap (velocity → color)
     PassPipeline m_passDebug;        // bias+contrast (raw texture)
     PassPipeline m_passTestInstancing; // instanced colored quads test
+
+    // Line rendering (spring dynamics particles)
+    static constexpr int LINE_GRID_COLS = 9;
+    static constexpr int LINE_GRID_ROWS = 9;
+    static constexpr int LINE_GRID_SPACING = 15;
+    std::unique_ptr<QRhiTexture> m_lineStateTex[2];  // RGBA16F ping-pong (9x9)
+    std::unique_ptr<QRhiBuffer> m_lineVertexBuf;      // 6 vec2 quad vertices
+    std::unique_ptr<QRhiComputePipeline> m_lineUpdatePipeline;
+    std::unique_ptr<QRhiShaderResourceBindings> m_lineUpdateSrb[2]; // indexed by read idx
+    std::unique_ptr<QRhiGraphicsPipeline> m_lineDrawPipeline;
+    std::unique_ptr<QRhiShaderResourceBindings> m_lineDrawSrb[2]; // one per state texture
+    std::unique_ptr<QRhiShaderResourceBindings> m_lineEmptySrb;    // empty SRB for no-binding shaders
+    int m_lineStateReadIdx = 0;  // ping-pong: read from this, write to 1-this
+    bool m_linePipelineReady = false;
 
     // Render targets for solver passes (one per writable texture)
     std::unique_ptr<QRhiTextureRenderTarget> m_velRT[2];
@@ -139,7 +155,7 @@ private:
     int m_pressureIterations = 19;
     int m_stepPhase = 0;
     float m_noiseMultiplier = 0.45f;
-    int m_debugMode = 0;
+    int m_debugMode = 5;  // Lines mode
 
     // Noise channel state
     static constexpr int NUM_CHANNELS = 3;
