@@ -63,7 +63,8 @@ private:
     PassPipeline m_passPressure[2];  // indexed by pi (which pressure to read)
     PassPipeline m_passSubtract[2][2]; // indexed by [vi][pi]
 
-    // Display texture (256x256 RGBA8) + pipeline
+    // Display textures (512x512 RGBA8 by default)
+    int m_displaySize = 512;
     std::unique_ptr<QRhiTexture> m_displayTex;
     std::unique_ptr<QRhiTextureRenderTarget> m_displayRT;
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA8;
@@ -130,6 +131,7 @@ private:
     std::unique_ptr<QRhiBuffer> m_directionBuf;       // Direction (float, 16 bytes std140)
     std::unique_ptr<QRhiBuffer> m_pushConstantBuf;    // timestep (16 bytes std140)
     std::unique_ptr<QRhiBuffer> m_gpuNoiseBuf;        // GpuNoiseParams (64 bytes std140)
+    std::unique_ptr<QRhiBuffer> m_lineUniformBuf;     // LineUniforms (std140, 48 bytes)
 
     // Pending resource upload batches
     QRhiResourceUpdateBatch *m_pendingUploadBatch = nullptr;

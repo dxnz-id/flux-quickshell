@@ -44,6 +44,20 @@ struct GpuNoiseParams {
     float _pad4[2];
 };
 static_assert(sizeof(GpuNoiseParams) == 80, "GpuNoiseParams must be 80 bytes");
+
+struct LineUniforms {
+    float aspect;
+    float zoom;
+    float line_width;
+    float line_length;
+    float line_begin_offset;
+    float line_variance;
+    float delta_time;
+    float grid_cols;   // floor(displaySize / gridSpacing), before +1
+    float grid_spacing;
+    float _pad[3];
+};
+static_assert(sizeof(LineUniforms) == 48, "LineUniforms must be 48 bytes");
 #pragma pack(pop)
 
 struct ChannelCfg {
@@ -102,6 +116,7 @@ void FluidSimEngine::releaseResources()
     m_directionBuf.reset();
     m_pushConstantBuf.reset();
     m_gpuNoiseBuf.reset();
+    m_lineUniformBuf.reset();
 
     m_quadVertexBuf.reset();
 
@@ -253,6 +268,7 @@ void FluidSimEngine::createBuffers()
     m_directionBuf = makeBuf("direction", (int)sizeof(Direction), QRhiBuffer::UniformBuffer);
     m_pushConstantBuf = makeBuf("pushConstants", (int)sizeof(PushConstants), QRhiBuffer::UniformBuffer);
     m_gpuNoiseBuf = makeBuf("gpuNoise", (int)sizeof(GpuNoiseParams), QRhiBuffer::UniformBuffer);
+    m_lineUniformBuf = makeBuf("lineUniforms", (int)sizeof(LineUniforms), QRhiBuffer::UniformBuffer);
 
     float dt = m_fluidTimestep;
     float centerFactor = 1.0f / (m_viscosity * dt);
@@ -456,7 +472,7 @@ void FluidSimEngine::createGraphicsPipelines()
 
 void FluidSimEngine::createDisplayPass()
 {
-    int ds = 2 * m_fluidSize;  // 256
+    int ds = m_displaySize;
 
     m_displayTex.reset(m_rhi->newTexture(QRhiTexture::RGBA8, {ds, ds}, 1, QRhiTexture::RenderTarget));
     m_displayTex->setName("displayTex");
@@ -612,7 +628,7 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
         ph = 0;
         m_frameCount++;
 
-        int ds = 2 * m_fluidSize;  // display texture size: 256
+        int ds = m_displaySize;
 
         // Run line update compute + render when mode is 5
         if (m_debugMode == 5) {
@@ -718,7 +734,7 @@ void FluidSimEngine::createLinePipelines()
         return;
     }
 
-    int ds = 2 * m_fluidSize;  // 256
+    int ds = m_displaySize;
     float fcols = floorf(float(ds) / 15.0f);
     float frows = floorf(float(ds) / float(ds) * fcols);
     m_lineGridCols = int(fcols) + 1;
@@ -840,6 +856,8 @@ void FluidSimEngine::createLinePipelines()
                 m_lineStateTex[0].get(), m_nearestSampler.get()),
             QRhiShaderResourceBinding::imageStore(2, QRhiShaderResourceBinding::ComputeStage,
                 m_lineStateTex[1].get(), 0),
+            QRhiShaderResourceBinding::uniformBuffer(3, QRhiShaderResourceBinding::ComputeStage,
+                m_lineUniformBuf.get()),
         });
         srb->create();
         m_lineUpdatePipeline.reset(m_rhi->newComputePipeline());
@@ -865,6 +883,8 @@ void FluidSimEngine::createLinePipelines()
             m_velocityTex[0].get(), m_linearSampler.get()),
         QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::VertexStage,
             m_lineStateTex[0].get(), m_nearestSampler.get()),
+        QRhiShaderResourceBinding::uniformBuffer(2, QRhiShaderResourceBinding::VertexStage,
+            m_lineUniformBuf.get()),
     });
     dummySrb->create();
 
@@ -918,9 +938,26 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     int writeIdx = 1 - m_lineStateReadIdx;
     int lineCount = m_lineCount;
     int velIdx = m_velocityIndex;
+    int ds = m_displaySize;
+
+    // Upload line uniforms every frame
+    LineUniforms lu;
+    lu.aspect = 1.0f;
+    lu.zoom = 1.6f;
+    lu.line_width = lu.zoom * 9.0f / float(ds);
+    lu.line_length = lu.zoom * 450.0f / float(ds);
+    lu.line_begin_offset = 0.4f;
+    lu.line_variance = 0.55f;
+    lu.delta_time = 1.0f / 60.0f;
+    lu.grid_cols = float(m_lineGridCols - 1);
+    lu.grid_spacing = 1.0f / float(m_lineGridCols - 1);
+    memset(lu._pad, 0, sizeof(lu._pad));
+    QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
+    ub->uploadStaticBuffer(m_lineUniformBuf.get(), QByteArray((const char*)&lu, sizeof(lu)));
+    cb->resourceUpdate(ub);
 
     // 1. Compute pass: update particle state
-    // Build dynamic compute SRB with current velocity and state ping-pong
+    // Build dynamic compute SRB with current velocity, state ping-pong, and line UBO
     m_lineFrameComputeSrb.reset(m_rhi->newShaderResourceBindings());
     m_lineFrameComputeSrb->setBindings({
         QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::ComputeStage,
@@ -929,6 +966,8 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
             m_lineStateTex[m_lineStateReadIdx].get(), m_nearestSampler.get()),
         QRhiShaderResourceBinding::imageStore(2, QRhiShaderResourceBinding::ComputeStage,
             m_lineStateTex[writeIdx].get(), 0),
+        QRhiShaderResourceBinding::uniformBuffer(3, QRhiShaderResourceBinding::ComputeStage,
+            m_lineUniformBuf.get()),
     });
     m_lineFrameComputeSrb->create();
 
@@ -941,18 +980,19 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
 
     m_lineStateReadIdx = writeIdx;
 
-    // 2. Render pass: draw instanced lines
-    int ds = 2 * m_fluidSize;
+    // 2. Render pass: draw instanced lines on black
     cb->beginPass(m_displayRT.get(), QColor(0, 0, 0, 0), QRhiDepthStencilClearValue{1.0f, 0});
     cb->setGraphicsPipeline(m_lineDrawPipeline.get());
 
-    // Build dynamic draw SRB (velocity + state, bound to vertex stage)
+    // Build dynamic draw SRB (velocity, state, and UBO bound to vertex stage)
     m_lineFrameDrawSrb.reset(m_rhi->newShaderResourceBindings());
     m_lineFrameDrawSrb->setBindings({
         QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::VertexStage,
             m_velocityTex[velIdx].get(), m_linearSampler.get()),
         QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::VertexStage,
             m_lineStateTex[m_lineStateReadIdx].get(), m_nearestSampler.get()),
+        QRhiShaderResourceBinding::uniformBuffer(2, QRhiShaderResourceBinding::VertexStage,
+            m_lineUniformBuf.get()),
     });
     m_lineFrameDrawSrb->create();
     cb->setShaderResources(m_lineFrameDrawSrb.get());

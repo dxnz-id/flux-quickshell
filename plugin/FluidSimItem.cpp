@@ -184,7 +184,7 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         img.fill(QColor(15, 15, 30));
     }
     auto *tex = window()->createTextureFromImage(img);
-    tex->setFiltering(QSGTexture::Nearest);
+    tex->setFiltering(QSGTexture::Linear);
     imageNode->setTexture(tex);
     imageNode->setOwnsTexture(true);
 

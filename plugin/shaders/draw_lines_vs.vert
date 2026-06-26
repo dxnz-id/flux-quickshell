@@ -4,15 +4,24 @@ layout(location = 1) in vec2 aBasepoint;
 
 layout(binding = 0) uniform sampler2D uVelTex;
 layout(binding = 1) uniform sampler2D uStateTex;
+layout(binding = 2, std140) uniform LineUniforms {
+    float uAspect;
+    float uZoom;
+    float uLineWidth;
+    float uLineLength;
+    float uLineBeginOffset;
+    float uLineVariance;
+    float uDeltaTime;
+    float uGridCols;
+    float uGridSpacing;
+    float _pad0;
+    float _pad1;
+    float _pad2;
+};
 
 layout(location = 0) out vec2 vVertex;
 layout(location = 1) out vec4 vColor;
 layout(location = 2) out float vLineOffset;
-
-const float ASPECT = 1.0;
-const float ZOOM = 1.6;
-const float LINE_WIDTH = 0.015;
-const float LINE_BEGIN_OFFSET = 0.4;
 
 void main() {
     int idx = gl_InstanceIndex;
@@ -28,13 +37,13 @@ void main() {
     vec2 xBasis = vec2(-endpoint.y, endpoint.x);
     xBasis /= max(length(xBasis), 1e-10);
 
-    vec2 point = vec2(ASPECT, 1.0) * ZOOM * (aBasepoint * 2.0 - 1.0)
+    vec2 point = vec2(uAspect, 1.0) * uZoom * (aBasepoint * 2.0 - 1.0)
         + endpoint * aVertex.y
-        + LINE_WIDTH * width * xBasis * aVertex.x;
-    point.x /= ASPECT;
+        + uLineWidth * width * xBasis * aVertex.x;
+    point.x /= uAspect;
 
-    float shortLineBoost = 1.0 + (LINE_WIDTH * width) / max(length(endpoint), 1e-10);
-    vLineOffset = LINE_BEGIN_OFFSET / shortLineBoost;
+    float shortLineBoost = 1.0 + (uLineWidth * width) / max(length(endpoint), 1e-10);
+    vLineOffset = uLineBeginOffset / shortLineBoost;
     vVertex = aVertex;
     vColor = color;
 
