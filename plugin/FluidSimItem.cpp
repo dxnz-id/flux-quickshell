@@ -167,7 +167,7 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         imageNode->setTextureCoordinatesTransform(QSGImageNode::NoTransform);
     }
 
-    int ds = 2 * m_simSize;
+    int ds = m_engine->displaySize();
     imageNode->setRect(0, 0, width(), height());
     imageNode->setSourceRect(QRectF(0, 0, ds, ds));
 
@@ -248,7 +248,7 @@ void EngineStepJob::run()
 
     if (m_engine->displayTex() && !m_item->hasPendingReadback()) {
         m_item->setReadbackPending(true);
-        int ds = 2 * m_engine->fluidSize();
+        int ds = m_engine->displaySize();
         int px = ds * ds * 4;
         auto *result = new QRhiReadbackResult();
         QByteArray *outData = new QByteArray();

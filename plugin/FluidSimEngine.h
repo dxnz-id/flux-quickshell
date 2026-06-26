@@ -20,6 +20,7 @@ public:
     bool isInitialized() const { return m_initialized; }
 
     QRhiTexture *displayTex() const { return m_displayTex.get(); }
+    int displaySize() const { return m_displaySize; }
     QRhiSampler *nearestSampler() const { return m_nearestSampler.get(); }
     QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
