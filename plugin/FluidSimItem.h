@@ -71,6 +71,7 @@ protected:
 private:
     void initOurRhi();
     void scheduleEngineStep();
+    int computeDisplaySize(int w, int h);
 
 private slots:
     void onFrameTick();
@@ -95,4 +96,7 @@ private:
 
     QElapsedTimer m_elapsed;
     qint64 m_lastTick = 0;
+
+    // Resize tracking
+    int m_lastItemW = 0, m_lastItemH = 0;
 };

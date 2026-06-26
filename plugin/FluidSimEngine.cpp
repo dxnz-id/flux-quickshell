@@ -734,71 +734,25 @@ void FluidSimEngine::createLinePipelines()
         return;
     }
 
-    int ds = m_displaySize;
-    float fcols = floorf(float(ds) / 15.0f);
-    float frows = floorf(float(ds) / float(ds) * fcols);
+    // Grid from logical size (match grid.rs)
+    int w = m_logicalW, h = m_logicalH;
+    float fcols = floorf(float(w) / 15.0f);
+    float frows = floorf(float(h) / float(w) * fcols);
     m_lineGridCols = int(fcols) + 1;
     m_lineGridRows = int(frows) + 1;
     m_lineCount = m_lineGridCols * m_lineGridRows;
-    float gridSpacingUV = 1.0f / fcols;
 
-    int stateTexels = m_lineCount * 3;
+    fprintf(stderr, "  Lines: grid %dx%d = %d\n",
+        m_lineGridCols, m_lineGridRows, m_lineCount);
 
-    fprintf(stderr, "  Lines: grid %dx%d = %d, state texels = %d\n",
-        m_lineGridCols, m_lineGridRows, m_lineCount, stateTexels);
+    // Create state textures + basepoints
+    initLineState();
+    initBasepoints();
 
-    // Create ping-pong state textures (RGBA16F, lineCount*3 x 1)
-    for (int i = 0; i < 2; i++) {
-        char name[16]; snprintf(name, sizeof(name), "lineState%d", i);
-        m_lineStateTex[i].reset(m_rhi->newTexture(
-            QRhiTexture::RGBA16F, {stateTexels, 1}, 1,
-            QRhiTexture::UsedWithLoadStore | QRhiTexture::UsedAsTransferSource));
-        m_lineStateTex[i]->setName(name);
-        if (!m_lineStateTex[i]->create()) {
-            fprintf(stderr, "  Lines: state tex %d FAILED\n", i);
-            return;
-        }
-    }
-
-    // Initialize state textures: endpoint=small random, velocity=0, color=(1,1,1,0), colorVel=0, width=0
-    {
-        QRhiCommandBuffer *cb = nullptr;
-        if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
-        QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
-        QByteArray initData(stateTexels * 8, 0);
-        qfloat16 *hf = reinterpret_cast<qfloat16*>(initData.data());
-        for (int i = 0; i < m_lineCount; i++) {
-            int base = i * 12;  // 12 half-floats per line
-            float a = (float(rand()) / RAND_MAX) * 2.0f * 3.14159f;
-            float r = (float(rand()) / RAND_MAX) * 0.03f;
-            hf[base + 0] = qfloat16(cosf(a) * r);  // endpoint.x
-            hf[base + 1] = qfloat16(sinf(a) * r);  // endpoint.y
-            // hf[base+2..3] = 0,0 (velocity)
-            hf[base + 4] = qfloat16(1.0f);  // color.r
-            hf[base + 5] = qfloat16(1.0f);  // color.g
-            hf[base + 6] = qfloat16(1.0f);  // color.b
-            hf[base + 7] = qfloat16(0.0f);  // color.a (opacity=0)
-            // hf[base+8..11] = 0,0,0,0 (colorVel, width)
-        }
-        int rowBytes = stateTexels * 8;
-        QRhiTextureSubresourceUploadDescription subdesc(initData, initData.size());
-        subdesc.setDataStride(rowBytes);
-        QRhiTextureUploadEntry entry(0, 0, subdesc);
-        QRhiTextureUploadDescription desc = QRhiTextureUploadDescription(entry);
-        ub->uploadTexture(m_lineStateTex[0].get(), desc);
-        ub->uploadTexture(m_lineStateTex[1].get(), desc);
-        cb->resourceUpdate(ub);
-        m_rhi->endOffscreenFrame();
-    }
-
-    // Create line vertex buffer (6 vertices: 2 triangles forming a quad)
+    // Create line vertex buffer (6 vertices: 2 triangles forming a quad, never changes)
     const float verts[] = {
-        -0.5f, 0.0f,   // left, base
-        -0.5f, 1.0f,   // left, tip
-         0.5f, 1.0f,   // right, tip
-        -0.5f, 0.0f,   // left, base (triangle 2)
-         0.5f, 1.0f,   // right, tip
-         0.5f, 0.0f,   // right, base
+        -0.5f, 0.0f,   -0.5f, 1.0f,   0.5f, 1.0f,
+        -0.5f, 0.0f,   0.5f, 1.0f,    0.5f, 0.0f,
     };
     m_lineVertexBuf.reset(m_rhi->newBuffer(
         QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(verts)));
@@ -813,29 +767,6 @@ void FluidSimEngine::createLinePipelines()
         m_rhi->endOffscreenFrame();
     }
 
-    // Create basepoint buffer (vec2[lineCount], PerInstance)
-    {
-        QByteArray bpData(m_lineCount * 8, 0);
-        float *bp = reinterpret_cast<float*>(bpData.data());
-        for (int r = 0; r < m_lineGridRows; r++) {
-            for (int c = 0; c < m_lineGridCols; c++) {
-                int idx = r * m_lineGridCols + c;
-                bp[idx * 2 + 0] = float(c) * gridSpacingUV;
-                bp[idx * 2 + 1] = float(r) * gridSpacingUV;
-            }
-        }
-        m_lineBasepointBuf.reset(m_rhi->newBuffer(
-            QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, m_lineCount * 8));
-        m_lineBasepointBuf->setName("lineBasepoints");
-        m_lineBasepointBuf->create();
-        QRhiCommandBuffer *cb = nullptr;
-        if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
-        QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
-        ub->uploadStaticBuffer(m_lineBasepointBuf.get(), bpData);
-        cb->resourceUpdate(ub);
-        m_rhi->endOffscreenFrame();
-    }
-
     // Load shaders
     QShader updateCs = FluidSimShaders::loadShader("line_update");
     if (!updateCs.isValid()) { fprintf(stderr, "  Lines: line_update.comp FAILED\n"); return; }
@@ -845,7 +776,6 @@ void FluidSimEngine::createLinePipelines()
     if (!drawFs.isValid()) { fprintf(stderr, "  Lines: draw_lines_fs.frag FAILED\n"); return; }
 
     // --- Compute pipeline (line_update) ---
-    // Use a temporary SRB for pipeline creation (just needs binding layout)
     {
         auto srb = std::unique_ptr<QRhiShaderResourceBindings>(
             m_rhi->newShaderResourceBindings());
@@ -875,7 +805,6 @@ void FluidSimEngine::createLinePipelines()
 
     m_lineDrawPipeline.reset(m_rhi->newGraphicsPipeline());
 
-    // Create a dummy SRB for pipeline creation (bindings don't matter for layout)
     auto dummySrb = std::unique_ptr<QRhiShaderResourceBindings>(
         m_rhi->newShaderResourceBindings());
     dummySrb->setBindings({
@@ -894,23 +823,21 @@ void FluidSimEngine::createLinePipelines()
     m_lineDrawPipeline->setShaderResourceBindings(dummySrb.get());
     m_lineDrawPipeline->setRenderPassDescriptor(m_rpDescRGBA8.get());
 
-    // Vertex input: 2 bindings (vertex PerVertex + basepoint PerInstance)
     {
         QRhiVertexInputLayout inputLayout;
         inputLayout.setBindings({
-            QRhiVertexInputBinding(2 * sizeof(float)),                          // binding 0: PerVertex
-            QRhiVertexInputBinding(2 * sizeof(float), QRhiVertexInputBinding::PerInstance),  // binding 1: PerInstance
+            QRhiVertexInputBinding(2 * sizeof(float)),
+            QRhiVertexInputBinding(2 * sizeof(float), QRhiVertexInputBinding::PerInstance),
         });
         inputLayout.setAttributes({
-            QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),  // loc 0: aVertex
-            QRhiVertexInputAttribute(1, 1, QRhiVertexInputAttribute::Float2, 0),  // loc 1: aBasepoint
+            QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),
+            QRhiVertexInputAttribute(1, 1, QRhiVertexInputAttribute::Float2, 0),
         });
         m_lineDrawPipeline->setVertexInputLayout(inputLayout);
     }
 
     m_lineDrawPipeline->setTopology(QRhiGraphicsPipeline::Triangles);
 
-    // Additive blending (SrcAlpha, One) matching reference
     QRhiGraphicsPipeline::TargetBlend blend;
     blend.enable = true;
     blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
@@ -930,6 +857,117 @@ void FluidSimEngine::createLinePipelines()
         m_lineGridCols, m_lineGridRows, m_lineCount);
 }
 
+void FluidSimEngine::initLineState()
+{
+    int stateTexels = m_lineCount * 3;
+
+    // Create ping-pong state textures
+    for (int i = 0; i < 2; i++) {
+        char name[16]; snprintf(name, sizeof(name), "lineState%d", i);
+        m_lineStateTex[i].reset(m_rhi->newTexture(
+            QRhiTexture::RGBA16F, {stateTexels, 1}, 1,
+            QRhiTexture::UsedWithLoadStore | QRhiTexture::UsedAsTransferSource));
+        m_lineStateTex[i]->setName(name);
+        m_lineStateTex[i]->create();
+    }
+
+    // Upload initial state: endpoint=small random, velocity=0, color=(1,1,1,0), colorVel=0, width=0
+    QRhiCommandBuffer *cb = nullptr;
+    if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
+    QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
+    QByteArray initData(stateTexels * 8, 0);
+    qfloat16 *hf = reinterpret_cast<qfloat16*>(initData.data());
+    for (int i = 0; i < m_lineCount; i++) {
+        int base = i * 12;
+        float a = (float(rand()) / RAND_MAX) * 2.0f * 3.14159f;
+        float r = (float(rand()) / RAND_MAX) * 0.03f;
+        hf[base + 0] = qfloat16(cosf(a) * r);
+        hf[base + 1] = qfloat16(sinf(a) * r);
+        hf[base + 4] = qfloat16(1.0f);
+        hf[base + 5] = qfloat16(1.0f);
+        hf[base + 6] = qfloat16(1.0f);
+        hf[base + 7] = qfloat16(0.0f);
+    }
+    int rowBytes = stateTexels * 8;
+    QRhiTextureSubresourceUploadDescription subdesc(initData, initData.size());
+    subdesc.setDataStride(rowBytes);
+    QRhiTextureUploadEntry entry(0, 0, subdesc);
+    QRhiTextureUploadDescription desc = QRhiTextureUploadDescription(entry);
+    ub->uploadTexture(m_lineStateTex[0].get(), desc);
+    ub->uploadTexture(m_lineStateTex[1].get(), desc);
+    cb->resourceUpdate(ub);
+    m_rhi->endOffscreenFrame();
+}
+
+void FluidSimEngine::initBasepoints()
+{
+    float gridSpacingUV = 1.0f / float(m_lineGridCols - 1);
+    QByteArray bpData(m_lineCount * 8, 0);
+    float *bp = reinterpret_cast<float*>(bpData.data());
+    for (int r = 0; r < m_lineGridRows; r++) {
+        for (int c = 0; c < m_lineGridCols; c++) {
+            int idx = r * m_lineGridCols + c;
+            bp[idx * 2 + 0] = float(c) * gridSpacingUV;
+            bp[idx * 2 + 1] = float(r) * gridSpacingUV;
+        }
+    }
+    m_lineBasepointBuf.reset(m_rhi->newBuffer(
+        QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, m_lineCount * 8));
+    m_lineBasepointBuf->setName("lineBasepoints");
+    m_lineBasepointBuf->create();
+    QRhiCommandBuffer *cb = nullptr;
+    if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
+    QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
+    ub->uploadStaticBuffer(m_lineBasepointBuf.get(), bpData);
+    cb->resourceUpdate(ub);
+    m_rhi->endOffscreenFrame();
+}
+
+void FluidSimEngine::resizeDisplay(int logicalW, int logicalH, int displayTexSize)
+{
+    m_desiredLogicalW = logicalW;
+    m_desiredLogicalH = logicalH;
+    m_desiredDisplaySize = displayTexSize;
+    m_resizeNeeded = true;
+}
+
+void FluidSimEngine::checkResize()
+{
+    if (!m_resizeNeeded) return;
+
+    // Release old display + line resources
+    m_displayTex.reset();
+    m_displayRT.reset();
+    m_lineStateTex[0].reset();
+    m_lineStateTex[1].reset();
+    m_lineBasepointBuf.reset();
+
+    // Apply new sizes
+    m_displaySize = m_desiredDisplaySize;
+    m_logicalW = m_desiredLogicalW;
+    m_logicalH = m_desiredLogicalH;
+
+    // Re-create display Tex + RT (same m_rpDescRGBA8, format unchanged)
+    createDisplayPass();
+
+    // Recalc grid from logical size (match grid.rs)
+    float fcols = floorf(float(m_logicalW) / 15.0f);
+    float frows = floorf(float(m_logicalH) / float(m_logicalW) * fcols);
+    m_lineGridCols = int(fcols) + 1;
+    m_lineGridRows = int(frows) + 1;
+    m_lineCount = m_lineGridCols * m_lineGridRows;
+
+    fprintf(stderr, "  RESIZE: display=%d logical=%dx%d grid=%dx%d lines=%d\n",
+        m_displaySize, m_logicalW, m_logicalH, m_lineGridCols, m_lineGridRows, m_lineCount);
+
+    // Re-create line state (zeroed, matching reference) + basepoints
+    m_lineStateReadIdx = 0;
+    initLineState();
+    initBasepoints();
+
+    m_resizeNeeded = false;
+}
+
 void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
 {
     if (!m_lineUpdatePipeline || !m_linePipelineReady)
@@ -940,12 +978,16 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     int velIdx = m_velocityIndex;
     int ds = m_displaySize;
 
-    // Upload line uniforms every frame
+    // Upload line uniforms (match reference get_line_scale_factor)
+    float aspect = float(m_logicalW) / float(m_logicalH);
+    float p = 1.0f / aspect;
+    float screenSize = fmin((1.0f - p) * float(m_logicalW) + p * float(m_logicalH), 2000.0f);
+    float scaleFactor = 1.0f / screenSize;
     LineUniforms lu;
-    lu.aspect = 1.0f;
+    lu.aspect = aspect;
     lu.zoom = 1.6f;
-    lu.line_width = lu.zoom * 9.0f / float(ds);
-    lu.line_length = lu.zoom * 450.0f / float(ds);
+    lu.line_width = lu.zoom * 9.0f * scaleFactor;
+    lu.line_length = lu.zoom * 450.0f * scaleFactor;
     lu.line_begin_offset = 0.4f;
     lu.line_variance = 0.55f;
     lu.delta_time = 1.0f / 60.0f;

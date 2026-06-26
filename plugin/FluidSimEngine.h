@@ -25,6 +25,8 @@ public:
     QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
     void setDebugMode(int mode) { m_debugMode = mode; }
+    void resizeDisplay(int logicalW, int logicalH, int displayTexSize);
+    void checkResize();
 
 signals:
     void frameCountChanged(int count);
@@ -40,6 +42,8 @@ private:
     void testComputeAndSSBO();
     void createLinePipelines();
     void stepLines(QRhiCommandBuffer *cb);
+    void initLineState();
+    void initBasepoints();
     void updateNoiseChannels(float dt);
 
     QRhiShaderResourceBindings *buildBinding(std::initializer_list<QRhiShaderResourceBinding> list);
@@ -63,6 +67,12 @@ private:
     PassPipeline m_passDivergence[2]; // indexed by vi (which velocity to read)
     PassPipeline m_passPressure[2];  // indexed by pi (which pressure to read)
     PassPipeline m_passSubtract[2][2]; // indexed by [vi][pi]
+
+    // Logical window size (from FluidSimItem, for line_scale_factor match reference)
+    int m_logicalW = 750, m_logicalH = 750;
+    int m_desiredLogicalW = 750, m_desiredLogicalH = 750;
+    int m_desiredDisplaySize = 512;
+    bool m_resizeNeeded = false;
 
     // Display textures (512x512 RGBA8 by default)
     int m_displaySize = 512;

@@ -167,6 +167,17 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         imageNode->setTextureCoordinatesTransform(QSGImageNode::NoTransform);
     }
 
+    // Detect resize and propagate to engine
+    int w = int(width());
+    int h = int(height());
+    if (w != m_lastItemW || h != m_lastItemH) {
+        int ds = computeDisplaySize(w, h);
+        if (m_engine)
+            m_engine->resizeDisplay(w, h, ds);
+        m_lastItemW = w;
+        m_lastItemH = h;
+    }
+
     int ds = m_engine->displaySize();
     imageNode->setRect(0, 0, width(), height());
     imageNode->setSourceRect(QRectF(0, 0, ds, ds));
@@ -220,6 +231,16 @@ void FluidSimItem::setReadbackPending(bool p)
     m_readbackPending = p;
 }
 
+int FluidSimItem::computeDisplaySize(int w, int h)
+{
+    int base = std::min(w, h);
+    int ds = int(float(base) / 750.0f * 512.0f);
+    ds = ((ds + 7) / 15) * 15;  // round to nearest 15
+    if (ds < 256) ds = 256;
+    if (ds > 1024) ds = 1024;
+    return ds;
+}
+
 // ---- EngineStepJob ----
 
 void EngineStepJob::run()
@@ -233,6 +254,9 @@ void EngineStepJob::run()
         m_sharedCtx->moveToThread(QThread::currentThread());
         m_fallbackSurface->moveToThread(QThread::currentThread());
     }
+
+    // Process pending resize before frame (QRhi resource ops outside frame)
+    m_engine->checkResize();
 
     QRhiCommandBuffer *cb = nullptr;
     if (m_ourRhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
