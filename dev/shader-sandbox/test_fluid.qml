@@ -7,7 +7,7 @@ Window {
     width: 900; height: 750
     visible: true
     title: "FluidSim — Debug Visualizer"
-    color: "#0d0d1a"
+    color: "#000"
 
     readonly property int simSize: 128
 

@@ -7,7 +7,7 @@ Window {
     width: 640; height: 540
     visible: true
     title: "Flux — C++ QRhi Plugin"
-    color: "#0d0d1a"
+    color: "#000"
 
     readonly property int simSize: 128
 
