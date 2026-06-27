@@ -1083,6 +1083,29 @@ void FluidSimEngine::checkResize()
     initLineState();
     initBasepoints();
 
+    // Reset velocity + pressure fields so lines fade in fresh (like first open)
+    m_velocityIndex = 0;
+    m_pressureIndex = 0;
+    {
+        QRhiCommandBuffer *cb = nullptr;
+        if (m_rhi->beginOffscreenFrame(&cb) == QRhi::FrameOpSuccess) {
+            QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
+            int s = m_fluidSize;
+            QByteArray zeroVel(s * s * 8, 0);
+            QRhiTextureSubresourceUploadDescription subVel(zeroVel, zeroVel.size());
+            subVel.setDataStride(s * 8);
+            ub->uploadTexture(m_velocityTex[0].get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, subVel)));
+            ub->uploadTexture(m_velocityTex[1].get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, subVel)));
+            QByteArray zeroPress(s * s * 4, 0);
+            QRhiTextureSubresourceUploadDescription subPress(zeroPress, zeroPress.size());
+            subPress.setDataStride(s * 4);
+            ub->uploadTexture(m_pressureTex[0].get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, subPress)));
+            ub->uploadTexture(m_pressureTex[1].get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, subPress)));
+            cb->resourceUpdate(ub);
+            m_rhi->endOffscreenFrame();
+        }
+    }
+
     m_resizeNeeded = false;
 }
 
