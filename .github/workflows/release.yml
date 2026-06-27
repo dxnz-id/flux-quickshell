@@ -45,11 +45,11 @@ jobs:
         run: |
           TAG=${GITHUB_REF_NAME}
           PKG="FluxEngine-${TAG}-linux-x86_64"
-mkdir -p dist/${PKG}/FluxEngine
-cp -r build/FluxEngine/libfluxengineplugin.so dist/${PKG}/FluxEngine/
-cp -r build/FluxEngine/qmldir dist/${PKG}/FluxEngine/
-cp -r build/FluxEngine/fluxengine.qmltypes dist/${PKG}/FluxEngine/
-cp -r build/FluxEngine/shaders dist/${PKG}/FluxEngine/
+          mkdir -p dist/${PKG}/FluxEngine
+          cp -r build/FluxEngine/libfluxengineplugin.so dist/${PKG}/FluxEngine/
+          cp -r build/FluxEngine/qmldir dist/${PKG}/FluxEngine/
+          cp -r build/FluxEngine/fluxengine.qmltypes dist/${PKG}/FluxEngine/
+          cp -r build/FluxEngine/shaders dist/${PKG}/FluxEngine/
           cd dist
           tar czf ../${PKG}.tar.gz ${PKG}/
 
