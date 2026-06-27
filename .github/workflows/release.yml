@@ -12,17 +12,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt 6.11
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.11.*'
-          host: linux
-          target: desktop
-          arch: gcc_64
-          modules: qtshadertools
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev libdbus-1-dev
+
+      - name: Install aqtinstall with Qt 6.11 support
+        run: |
+          pip install git+https://github.com/miurahr/aqtinstall.git@refs/pull/1000/head
+
+      - name: Install Qt 6.11 via aqtinstall
+        env:
+          QT_VER: 6.11.1
+        run: |
+          aqt install-qt linux desktop $QT_VER linux_gcc_64 -O "${{ runner.temp }}/Qt" --modules qtshadertools
 
       - name: Configure
-        run: cmake -B build -S plugin
+        env:
+          QT_VER: 6.11.1
+        run: |
+          Qt6_DIR="${{ runner.temp }}/Qt/$QT_VER/linux_gcc_64/lib/cmake/Qt6"
+          cmake -B build -S plugin -DCMAKE_PREFIX_PATH="${{ runner.temp }}/Qt/$QT_VER/linux_gcc_64"
 
       - name: Build
         run: cmake --build build --target fluidsimplugin
