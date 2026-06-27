@@ -6,6 +6,15 @@ Item {
     property bool running: true
     property alias frameCount: sim.frameCount
     property alias debugMode: sim.debugMode
+    property alias colorMode: sim.colorMode
+    property alias viscosity: sim.viscosity
+    property alias noiseMultiplier: sim.noiseMultiplier
+    property alias timestep: sim.timestep
+    property alias dissipation: sim.dissipation
+    property alias pressureIterations: sim.pressureIterations
+    property alias lineVariance: sim.lineVariance
+    property alias lineWidthMultiplier: sim.lineWidthMultiplier
+    property alias zoom: sim.zoom
 
     FluidSimItem {
         id: sim

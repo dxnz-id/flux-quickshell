@@ -2,6 +2,15 @@
 
 layout(binding = 0) uniform sampler2D noiseTex;
 layout(binding = 1) uniform sampler2D velocityTex;
+layout(binding = 8, std140) uniform FluidUniforms {
+    float uTimestep;
+    float uDissipation;
+    float uAlpha;
+    float uRbeta;
+    float uCenterFactor;
+    float uStencilFactor;
+    float uNoiseMultiplier;
+} u;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -13,6 +22,6 @@ void main() {
     vec2 velocity = texelFetch(velocityTex, pos, 0).xy;
     vec2 noise = texture(noiseTex, uv).xy;
 
-    vec2 newVel = velocity + (1.0 / 60.0) * noise;
+    vec2 newVel = velocity + u.uTimestep * noise;
     fragColor = vec4(newVel, 0.0, 0.0);
 }

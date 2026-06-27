@@ -64,6 +64,78 @@ void FluidSimItem::setDebugMode(int mode)
     update();
 }
 
+void FluidSimItem::setColorMode(int v)
+{
+    if (m_colorMode == v) return;
+    m_colorMode = v;
+    if (m_engine) m_engine->setColorMode(v);
+    emit colorModeChanged();
+}
+
+void FluidSimItem::setViscosity(float v)
+{
+    if (m_viscosity == v) return;
+    m_viscosity = v;
+    if (m_engine) m_engine->setViscosity(v);
+    emit viscosityChanged();
+}
+
+void FluidSimItem::setNoiseMultiplier(float v)
+{
+    if (m_noiseMultiplier == v) return;
+    m_noiseMultiplier = v;
+    if (m_engine) m_engine->setNoiseMultiplier(v);
+    emit noiseMultiplierChanged();
+}
+
+void FluidSimItem::setTimestep(float v)
+{
+    if (m_timestep == v) return;
+    m_timestep = v;
+    if (m_engine) m_engine->setTimestep(v);
+    emit timestepChanged();
+}
+
+void FluidSimItem::setDissipation(float v)
+{
+    if (m_dissipation == v) return;
+    m_dissipation = v;
+    if (m_engine) m_engine->setDissipation(v);
+    emit dissipationChanged();
+}
+
+void FluidSimItem::setPressureIterations(int v)
+{
+    if (m_pressureIterations == v) return;
+    m_pressureIterations = v;
+    if (m_engine) m_engine->setPressureIterations(v);
+    emit pressureIterationsChanged();
+}
+
+void FluidSimItem::setLineVariance(float v)
+{
+    if (m_lineVariance == v) return;
+    m_lineVariance = v;
+    if (m_engine) m_engine->setLineVariance(v);
+    emit lineVarianceChanged();
+}
+
+void FluidSimItem::setLineWidthMultiplier(float v)
+{
+    if (m_lineWidthMultiplier == v) return;
+    m_lineWidthMultiplier = v;
+    if (m_engine) m_engine->setLineWidthMultiplier(v);
+    emit lineWidthMultiplierChanged();
+}
+
+void FluidSimItem::setZoom(float v)
+{
+    if (m_zoom == v) return;
+    m_zoom = v;
+    if (m_engine) m_engine->setZoom(v);
+    emit zoomChanged();
+}
+
 void FluidSimItem::initOurRhi()
 {
     if (m_ourRhi)
@@ -159,6 +231,15 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_engine = std::make_unique<FluidSimEngine>();
         m_engine->init(m_ourRhi.get(), m_simSize);
         m_engine->setDebugMode(m_debugMode);
+        m_engine->setColorMode(m_colorMode);
+        m_engine->setViscosity(m_viscosity);
+        m_engine->setNoiseMultiplier(m_noiseMultiplier);
+        m_engine->setTimestep(m_timestep);
+        m_engine->setDissipation(m_dissipation);
+        m_engine->setPressureIterations(m_pressureIterations);
+        m_engine->setLineVariance(m_lineVariance);
+        m_engine->setLineWidthMultiplier(m_lineWidthMultiplier);
+        m_engine->setZoom(m_zoom);
     }
 
     auto *imageNode = static_cast<QSGImageNode *>(oldNode);

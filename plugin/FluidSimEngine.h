@@ -25,6 +25,18 @@ public:
     QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
     void setDebugMode(int mode) { m_debugMode = mode; }
+
+    // Configurable simulation parameters
+    void setViscosity(float v) { m_viscosity = v; m_paramsDirty = true; }
+    void setTimestep(float t) { m_fluidTimestep = t; m_paramsDirty = true; }
+    void setDissipation(float d) { m_dissipation = d; m_paramsDirty = true; }
+    void setNoiseMultiplier(float n) { m_noiseMultiplier = n; m_paramsDirty = true; }
+    void setPressureIterations(int p) { m_pressureIterations = p; }
+    void setColorMode(int m) { m_colorMode = float(m); }
+    void setLineVariance(float v) { m_lineVariance = v; }
+    void setLineWidthMultiplier(float m) { m_lineWidthMultiplier = m; }
+    void setZoom(float z) { m_zoom = z; }
+
     void resizeDisplay(int logicalW, int logicalH, int displayTexSize);
     void checkResize();
 
@@ -39,6 +51,7 @@ private:
     void createDisplayPass();
     void createRenderTargets();
     void initNoiseChannels();
+    void updateUniforms();  // upload FluidUniforms + Direction + PushConstants to GPU
     void testComputeAndSSBO();
     void createLinePipelines();
     void stepLines(QRhiCommandBuffer *cb);
@@ -172,6 +185,13 @@ private:
     int m_stepPhase = 0;
     float m_noiseMultiplier = 0.45f;
     int m_debugMode = 5;  // Lines mode
+
+    // Exposed QML settings
+    float m_colorMode = 0.0f;
+    float m_lineVariance = 0.55f;
+    float m_lineWidthMultiplier = 1.0f;
+    float m_zoom = 1.6f;
+    bool m_paramsDirty = false;
 
     // Noise channel state
     static constexpr int NUM_CHANNELS = 3;

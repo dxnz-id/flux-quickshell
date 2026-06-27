@@ -3,6 +3,15 @@
 layout(binding = 0) uniform sampler2D forwardTex;
 layout(binding = 1) uniform sampler2D reverseTex;
 layout(binding = 2) uniform sampler2D velocityTex;
+layout(binding = 8, std140) uniform FluidUniforms {
+    float uTimestep;
+    float uDissipation;
+    float uAlpha;
+    float uRbeta;
+    float uCenterFactor;
+    float uStencilFactor;
+    float uNoiseMultiplier;
+} u;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -15,9 +24,7 @@ void main() {
     vec2 reverse = texelFetch(reverseTex, pos, 0).xy;
 
     // Backtrack to find clamp region in the flow direction
-    // Reference: advected_position = (pos + 1.0) - timestep * velocity
-    float timestep = 0.016667f;
-    ivec2 srcCell = ivec2(floor(vec2(pos) + 1.0 - timestep * velocity));
+    ivec2 srcCell = ivec2(floor(vec2(pos) + 1.0 - u.uTimestep * velocity));
     srcCell = clamp(srcCell, ivec2(1), size - 2);
 
     vec2 l = texelFetch(velocityTex, srcCell + ivec2(-1, 0), 0).xy;

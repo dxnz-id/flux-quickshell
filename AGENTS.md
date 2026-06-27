@@ -251,6 +251,9 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Phase 6: 3 color modes (Original/ColorWheel/ImageTexture) with color texture binding
 - [x] Phase 7: Endpoint rendering — `draw_endpoint_vs.vert` + `draw_endpoint_fs.frag` matching reference endpoint.wgsl (top/bottom premultiplied alpha + side detection + smoothEdges)
 
+### Selesai
+- [x] **Configurable simulation parameters via QML** — 9 parameters exposed via Q_PROPERTY (colorMode, viscosity, noiseMultiplier, timestep, dissipation, pressureIterations, lineVariance, lineWidthMultiplier, zoom). `m_fluidUniformBuf` revived and bound at `binding=8` to all solver shaders. `GpuNoiseParams.noiseMultiplier` replaces hardcoded NOISE_MULT.
+
 ### In Progress
 - [ ] Quickshell integration — test on dots-hyprfork lockscreen
 
@@ -280,6 +283,75 @@ Detail matematika dan parameter default harus didokumentasikan di
 - 2026-06-24: `QQuickWindow::update()` di threaded mode tidak trigger sync → `updatePaintNode()` tidak dipanggil. Fix: panggil `QQuickItem::update()` yang mark item dirty, forcing sync + `updatePaintNode()` setiap frame.
 - 2026-06-25: **QSB loading priority bug**: `FluidSimShaders::loadShader()` searches `applicationDirPath() + "/shaders/"` FIRST. Sandbox app (`dev/shader-sandbox/build/shader_sandbox`) has old QSB copies in its own `build/shaders/` dir that take priority over newly compiled ones in `plugin/build/FluidSim/shaders/`. Fix: sandbox CMake copies from plugin build dir (`../../plugin/build/FluidSim/shaders/`) instead of stale `shaders/compiled/`. **If you change shaders and the app still shows old behavior, check that QSB files in the sandbox build dir are updated.**
 - 2026-06-26: **Tiled texture layout required for state texture**: Line state texture must use `{256, texH}` format, NOT `{stateTexels, 1}` (very wide 1-row). `texelFetch` in vertex shader returns zeros when texture width exceeds implementation-dependent threshold on GLES2 backend. Always tile state textures to max width 256.
+
+---
+
+## Configurable Simulation Parameters
+
+Semua simulation parameter bisa di-set via QML properties pada `FluidSimItem` (di-expose via `FluidSimItem` Q_PROPERTY dan di-bridge ke shader via uniform buffer `FluidUniforms` pada binding=8 atau `GpuNoiseParams` pada binding=0).
+
+| QML Property | Type | Default | Range | Shader Binding | Effects |
+|---|---|---|---|---|---|
+| `colorMode` | int | 0 | 0-2 | `LineUniforms.color_mode` | Line color scheme: 0=Original, 1=ColorWheel, 2=ImageTexture |
+| `viscosity` | float | 5.0 | 0.1-20.0 | `FluidUniforms` → diffuse | Kekentalan fluida. Semakin besar, fluida lebih kental (diffuse lebih lambat) |
+| `noiseMultiplier` | float | 0.45 | 0.0-2.0 | `GpuNoiseParams.noiseMultiplier` | Kekuatan noise penggerak fluida |
+| `timestep` | float | 0.016667 | 0.001-0.1 | `FluidUniforms` → advect/adjust/inject | Kecepatan simulasi per frame. Default = 1/60 |
+| `dissipation` | float | 0.0 | 0.0-1.0 | `FluidUniforms` → advect | Energy loss per frame. 0 = no loss |
+| `pressureIterations` | int | 19 | 1-50 | C++ loop count | Kualitas solver pressure. Lebih tinggi = lebih akurat, lebih berat |
+| `lineVariance` | float | 0.55 | 0.0-2.0 | `LineUniforms.line_variance` | Seberapa wiggly garis flow |
+| `lineWidthMultiplier` | float | 1.0 | 0.1-5.0 | `LineUniforms.line_width` | Scale ketebalan garis |
+| `zoom` | float | 1.6 | 0.5-5.0 | `LineUniforms.zoom` | Zoom level tampilan |
+
+### Cara pakai via QML
+
+```qml
+FluidSimItem {
+    viscosity: 8.0
+    noiseMultiplier: 0.6
+    colorMode: 1
+    pressureIterations: 25
+}
+```
+
+### Cara integrasi dengan Config.qml (dots-hyprfork)
+
+Di `ii/modules/common/Config.qml`, tambah section `fluid`:
+```qml
+property JsonObject fluid: JsonObject {
+    property int colorMode: 0
+    property real viscosity: 5.0
+    property real noiseMultiplier: 0.45
+    property real timestep: 0.016667
+    property real dissipation: 0.0
+    property int pressureIterations: 19
+    property real lineVariance: 0.55
+    property real lineWidthMultiplier: 1.0
+    property real zoom: 1.6
+}
+```
+
+Di `FluxBackground.qml` atau view yang pake `FluidSimItem`:
+```qml
+import qs.modules.common
+
+FluidSimItem {
+    colorMode: Config.options.fluid.colorMode
+    viscosity: Config.options.fluid.viscosity
+    // ... dst
+}
+```
+
+### Aliran data
+
+```
+Config.options.fluid.viscosity (JSON file persisted)
+  → FluxBackground.qml property binding
+    → FluidSimItem.viscosity (Q_PROPERTY)
+      → FluidSimEngine::setViscosity(8.0)
+        → m_paramsDirty = true
+        → step(): updateUniforms() → upload GPU buffer
+        → pass_diffuse.frag baca u.uStencilFactor, u.uCenterFactor
+```
 
 ---
 

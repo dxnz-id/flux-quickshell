@@ -41,6 +41,16 @@ class FluidSimItem : public QQuickItem {
     Q_PROPERTY(int frameCount READ frameCount NOTIFY frameCountChanged)
     Q_PROPERTY(int simSize READ simSize WRITE setSimSize NOTIFY simSizeChanged)
     Q_PROPERTY(int debugMode READ debugMode WRITE setDebugMode NOTIFY debugModeChanged)
+
+    Q_PROPERTY(int colorMode READ colorMode WRITE setColorMode NOTIFY colorModeChanged)
+    Q_PROPERTY(float viscosity READ viscosity WRITE setViscosity NOTIFY viscosityChanged)
+    Q_PROPERTY(float noiseMultiplier READ noiseMultiplier WRITE setNoiseMultiplier NOTIFY noiseMultiplierChanged)
+    Q_PROPERTY(float timestep READ timestep WRITE setTimestep NOTIFY timestepChanged)
+    Q_PROPERTY(float dissipation READ dissipation WRITE setDissipation NOTIFY dissipationChanged)
+    Q_PROPERTY(int pressureIterations READ pressureIterations WRITE setPressureIterations NOTIFY pressureIterationsChanged)
+    Q_PROPERTY(float lineVariance READ lineVariance WRITE setLineVariance NOTIFY lineVarianceChanged)
+    Q_PROPERTY(float lineWidthMultiplier READ lineWidthMultiplier WRITE setLineWidthMultiplier NOTIFY lineWidthMultiplierChanged)
+    Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
 public:
     explicit FluidSimItem(QQuickItem *parent = nullptr);
     ~FluidSimItem();
@@ -53,6 +63,25 @@ public:
     int debugMode() const { return m_debugMode; }
     void setDebugMode(int mode);
 
+    int colorMode() const { return m_colorMode; }
+    void setColorMode(int v);
+    float viscosity() const { return m_viscosity; }
+    void setViscosity(float v);
+    float noiseMultiplier() const { return m_noiseMultiplier; }
+    void setNoiseMultiplier(float v);
+    float timestep() const { return m_timestep; }
+    void setTimestep(float v);
+    float dissipation() const { return m_dissipation; }
+    void setDissipation(float v);
+    int pressureIterations() const { return m_pressureIterations; }
+    void setPressureIterations(int v);
+    float lineVariance() const { return m_lineVariance; }
+    void setLineVariance(float v);
+    float lineWidthMultiplier() const { return m_lineWidthMultiplier; }
+    void setLineWidthMultiplier(float v);
+    float zoom() const { return m_zoom; }
+    void setZoom(float v);
+
     void storeReadback(const QByteArray &data);
     bool hasPendingReadback() const;
     void setReadbackPending(bool p);
@@ -62,6 +91,15 @@ signals:
     void frameCountChanged(int count);
     void simSizeChanged();
     void debugModeChanged();
+    void colorModeChanged();
+    void viscosityChanged();
+    void noiseMultiplierChanged();
+    void timestepChanged();
+    void dissipationChanged();
+    void pressureIterationsChanged();
+    void lineVarianceChanged();
+    void lineWidthMultiplierChanged();
+    void zoomChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -84,6 +122,16 @@ private:
     int m_simSize = 128;
     float m_pendingDt = 0.016f;
     int m_debugMode = 5;
+
+    int m_colorMode = 0;
+    float m_viscosity = 5.0f;
+    float m_noiseMultiplier = 0.45f;
+    float m_timestep = 1.0f / 60.0f;
+    float m_dissipation = 0.0f;
+    int m_pressureIterations = 19;
+    float m_lineVariance = 0.55f;
+    float m_lineWidthMultiplier = 1.0f;
+    float m_zoom = 1.6f;
 
     std::unique_ptr<QOffscreenSurface> m_fallbackSurface;
     std::unique_ptr<QRhi> m_ourRhi;

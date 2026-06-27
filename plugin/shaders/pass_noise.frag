@@ -1,7 +1,7 @@
 #version 440
 
 layout(binding = 0, std140) uniform NoiseParams {
-    vec4 elapsed;
+    vec4 elapsed;        // x = time, y = noiseMultiplier
     vec4 ch0;
     vec4 ch1;
     vec4 ch2;
@@ -9,8 +9,6 @@ layout(binding = 0, std140) uniform NoiseParams {
 };
 
 layout(location = 0) out vec4 fragColor;
-
-const float NOISE_MULT = 0.45;
 
 struct Chan { float scale; float mult; };
 const Chan CH[3] = Chan[](
@@ -88,5 +86,5 @@ void main() {
         noise += CH[i].mult * n;
     }
 
-    fragColor = vec4(noise * NOISE_MULT, 0.0, 0.0);
+    fragColor = vec4(noise * elapsed.y, 0.0, 0.0);
 }

@@ -2,6 +2,15 @@
 
 layout(binding = 0) uniform sampler2D divergenceTex;
 layout(binding = 1) uniform sampler2D pressureTex;
+layout(binding = 8, std140) uniform FluidUniforms {
+    float uTimestep;
+    float uDissipation;
+    float uAlpha;
+    float uRbeta;
+    float uCenterFactor;
+    float uStencilFactor;
+    float uNoiseMultiplier;
+} u;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -27,9 +36,7 @@ void main() {
     else if (pos.y == size.y - 1)
         t = pressure;
 
-    float r_beta = 0.25f;
-    float alpha = -1.0f;
-    float newPressure = r_beta * (l + r + b + t + alpha * divergence);
+    float newPressure = u.uRbeta * (l + r + b + t + u.uAlpha * divergence);
 
     fragColor = vec4(newPressure, 0.0, 0.0, 0.0);
 }
