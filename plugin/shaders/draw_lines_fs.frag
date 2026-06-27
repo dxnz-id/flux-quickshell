@@ -10,13 +10,10 @@ void main() {
     float xOffset = abs(vVertex.x);
     float smoothEdges = 1.0 - smoothstep(0.5 - edgeWidth, 0.5, xOffset);
 
-    // Round both ends: circular mask at tip (y=1) and start (y=0)
+    // Round tip (y=1) — semicircular cap. Start is already faded via vLineOffset.
     float tipDist = length(vec2(vVertex.x, vVertex.y - 1.0));
-    float startDist = length(vVertex);
-    float roundEdge = fwidth(tipDist);
-    float tipRound = 1.0 - smoothstep(0.5 - roundEdge, 0.5, tipDist);
-    float startRound = 1.0 - smoothstep(0.5 - roundEdge, 0.5, startDist);
-    smoothEdges = min(smoothEdges, min(tipRound, startRound));
+    float tipRound = 1.0 - smoothstep(0.5 - fwidth(tipDist), 0.5, tipDist);
+    smoothEdges = min(smoothEdges, tipRound);
 
     float a = vColor.a * fade * smoothEdges;
     fragColor = vec4(vColor.rgb, a);
