@@ -1,0 +1,46 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6.11
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.*'
+          host: linux
+          target: desktop
+          arch: gcc_64
+          modules: qtshadertools
+
+      - name: Configure
+        run: cmake -B build -S plugin
+
+      - name: Build
+        run: cmake --build build --target fluidsimplugin
+
+      - name: Package
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          PKG="FluidSim-${TAG}-linux-x86_64"
+          mkdir -p dist/${PKG}/FluidSim
+          cp -r build/FluidSim/libfluidsimplugin.so dist/${PKG}/FluidSim/
+          cp -r build/FluidSim/qmldir dist/${PKG}/FluidSim/
+          cp -r build/FluidSim/fluidsim.qmltypes dist/${PKG}/FluidSim/
+          cp -r build/FluidSim/shaders dist/${PKG}/FluidSim/
+          cd dist
+          tar czf ../${PKG}.tar.gz ${PKG}/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: FluidSim-*.tar.gz
+          generate_release_notes: true

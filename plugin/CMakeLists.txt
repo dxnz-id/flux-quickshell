@@ -79,18 +79,24 @@ add_custom_command(
 add_custom_target(fluidsim_qsb ALL DEPENDS ${QSB_FILES} ${QSB_DEST})
 add_dependencies(fluidsimplugin fluidsim_qsb)
 
-# Add Qt private header paths for QRhi access (Qt private headers)
-# Pattern from Qt6GuiPrivate: adds both version-dir (for angle-bracket includes)
-# and version-dir/module-dir (for quote includes within private headers)
-set(QT6_VER "6.11.1")
-foreach(tgt fluidsim fluidsimplugin)
-    target_include_directories(${tgt} SYSTEM PRIVATE
-        "/usr/include/qt6/QtGui/${QT6_VER}"
-        "/usr/include/qt6/QtGui/${QT6_VER}/QtGui"
-        "/usr/include/qt6/QtCore/${QT6_VER}"
-        "/usr/include/qt6/QtCore/${QT6_VER}/QtCore"
-    )
-endforeach()
+# Qt private headers (QRhi access). Try CMake targets first (works with aqtinstall),
+# fall back to hardcoded paths for system Qt installations (Arch, etc.)
+find_package(Qt6 QUIET COMPONENTS GuiPrivate CorePrivate)
+if(TARGET Qt6::GuiPrivate)
+    foreach(tgt fluidsim fluidsimplugin)
+        target_link_libraries(${tgt} PRIVATE Qt6::GuiPrivate Qt6::CorePrivate)
+    endforeach()
+else()
+    set(QT6_VER "6.11.1")
+    foreach(tgt fluidsim fluidsimplugin)
+        target_include_directories(${tgt} SYSTEM PRIVATE
+            "/usr/include/qt6/QtGui/${QT6_VER}"
+            "/usr/include/qt6/QtGui/${QT6_VER}/QtGui"
+            "/usr/include/qt6/QtCore/${QT6_VER}"
+            "/usr/include/qt6/QtCore/${QT6_VER}/QtCore"
+        )
+    endforeach()
+endif()
 
 target_link_libraries(fluidsim PRIVATE Qt6::Quick Qt6::Qml Qt6::Gui Qt6::ShaderTools)
 target_link_libraries(fluidsimplugin PRIVATE Qt6::Quick Qt6::Qml Qt6::Gui Qt6::ShaderTools)
