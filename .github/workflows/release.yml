@@ -39,7 +39,7 @@ jobs:
           cmake -B build -S plugin -DCMAKE_PREFIX_PATH="$QTDIR"
 
       - name: Build
-        run: cmake --build build --target fluidsimplugin
+        run: cmake --build build --target fluxengineplugin
 
       - name: Package
         run: |
