@@ -246,10 +246,13 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Phase 1: Compute shader untuk spring dynamics particle update (imageStore ke texture)
 - [x] Phase 2: draw_lines shaders (instanced vertex + fragment, matching flux reference)
 - [x] Phase 3: C++ pipeline integration + additive blend compositing ke displayTex
+- [x] Phase 4: Fragment shader AA — fade*fwidth smoothEdges (2026-06-27)
+- [x] Phase 5: Simplex noise (`snoise(vec3)`) in compute shader + noise uniforms (offset1/offset2/blendFactor) + `tickLineNoise()` C++ matching reference
+- [x] Phase 6: 3 color modes (Original/ColorWheel/ImageTexture) with color texture binding
+- [x] Phase 7: Endpoint rendering — `draw_endpoint_vs.vert` + `draw_endpoint_fs.frag` matching reference endpoint.wgsl (top/bottom premultiplied alpha + side detection + smoothEdges)
 
 ### In Progress
-- [ ] Line rendering visual tuning (opacity threshold, color response, variance)
-- [ ] Quickshell integration (dot hyprfork lockscreen)
+- [ ] Quickshell integration — test on dots-hyprfork lockscreen
 
 ### Belum Dimulai
 - [ ] Integrasi ke dots-hyprfork lockscreen (`LockScreen.qml` + `GlobalStates`)
@@ -687,3 +690,26 @@ ivec2 p0 = ivec2(base % texW, base / texW);
 - Instanced draw with `gl_InstanceIndex` + texelFetch-based per-instance state reading
 - Full spring-dynamics simulation (velocity-driven endpoint, color, width, opacity)
 - Display readback at frame 120: mean=(22.3 13.4 21.7 37.9) max=(255 255 255)
+
+## Session Summary (2026-06-27) — Exact-Match Line Rendering Complete
+
+### Changes
+1. **Fragment shader AA** (`draw_lines_fs.frag`): Replaced `smoothstep(0, 1.5, d)` with reference formula: `fade * smoothEdges` using `fwidth(vVertex.x)` for screen-space antialiasing (matching `line.wgsl`).
+2. **Variance noise** (`line_update.comp`): Ported `snoise(vec3)` 3D simplex noise from reference WGSL `generate_noise.comp.wgsl`. Added noise uniforms (`noiseScaleX/Y`, `noiseOffset1/2`, `noiseBlendFactor`) and `colorMode` switching. 3 modes:
+   - Mode 0 (Original): `clamp(vec2(1,0.66) * (0.5+vel), 0, 1)` with blue channel 0.5
+   - Mode 1 (ColorWheel): `atan2(vel.y, vel.x)` → `getColor()` with hardcoded Plasma 6-color palette
+   - Mode 2 (ImageTexture): `texture(uColorTex, 2.0*vel + 0.5)` from 256×1 RGBA8 rainbow gradient
+3. **Endpoint rendering**: New `draw_endpoint_vs.vert` + `draw_endpoint_fs.frag` matching reference `endpoint.wgsl`:
+   - Vertex position: `vec2(aspect,1)*zoom*(basepoint*2-1) + endpoint + 0.5*line_width*width*vertex`
+   - Top/bottom half detection via cross product with midpointVector
+   - Top half: `vec4(color.rgb, endpointOpacity)` → endpointOpacity=1.0 (threshold=1, brightness=1)
+   - Bottom half: `vec4(color.rgb*(1-color.a), 1)` — premultiplied alpha reverse math
+   - Smooth edges: `1.0 - smoothstep(1-fwidth(dist), 1, dist)`
+4. **C++ `tickLineNoise()`** (`FluidSimEngine.cpp`): Matches reference `tick()` — `BASE_OFFSET=0.0015`, `BLEND_THRESHOLD=4.0`, `perturb=1+0.2*sin(0.01*elapsed*TAU)`. Called in `step()` before `stepLines()`.
+5. **Stale test shaders removed**: `test_compute.comp`, `test_instancing_*`, `test_solid.comp` (relics from earlier exploration).
+
+### Verified
+- Sandbox runs clean to frame 540+ without GL errors, pipeline failures, or crashes
+- All pipelines (compute + line draw + endpoint draw) execute successfully every frame
+- Color texture (256×1 RGBA8) renders rainbow gradient for ImageTexture mode
+- Endpoint draw call uses same vertex + basepoint buffers as lines
