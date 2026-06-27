@@ -31,8 +31,9 @@ jobs:
         env:
           QT_VER: 6.11.1
         run: |
-          Qt6_DIR="${{ runner.temp }}/Qt/$QT_VER/linux_gcc_64/lib/cmake/Qt6"
-          cmake -B build -S plugin -DCMAKE_PREFIX_PATH="${{ runner.temp }}/Qt/$QT_VER/linux_gcc_64"
+          QTDIR=$(ls -d ${{ runner.temp }}/Qt/$QT_VER/*/lib/cmake/Qt6 2>/dev/null | head -1 | xargs dirname | xargs dirname | xargs dirname)
+          echo "Found Qt at: $QTDIR"
+          cmake -B build -S plugin -DCMAKE_PREFIX_PATH="$QTDIR"
 
       - name: Build
         run: cmake --build build --target fluidsimplugin
