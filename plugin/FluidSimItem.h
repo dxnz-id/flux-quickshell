@@ -116,12 +116,11 @@ private:
     void scheduleEngineStep();
     int computeDisplaySize(int w, int h);
 
-private slots:
+public slots:
     void onFrameTick();
 
 private:
     std::unique_ptr<FluidSimEngine> m_engine;
-    std::unique_ptr<QTimer> m_timer;
     bool m_running = false;
     int m_frameCount = 0;
     int m_simSize = 128;

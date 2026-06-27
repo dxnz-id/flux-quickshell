@@ -24,6 +24,13 @@ Item {
         running: root.running
     }
 
+    Timer {
+        interval: 16
+        running: root.running
+        repeat: true
+        onTriggered: sim.onFrameTick()
+    }
+
     /* ── FPS counter ── */
     property int _prevFrames: 0
     property int _fps: 0

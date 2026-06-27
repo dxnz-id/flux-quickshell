@@ -23,6 +23,13 @@ Window {
         msaaSampleCount: 4
     }
 
+    Timer {
+        interval: 16
+        running: true
+        repeat: true
+        onTriggered: sim.onFrameTick()
+    }
+
     /* ── Debug mode buttons ── */
     Row {
         id: modeBar

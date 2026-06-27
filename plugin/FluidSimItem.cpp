@@ -5,7 +5,7 @@
 #include <QSGImageNode>
 #include <QSGTexture>
 #include <QQuickWindow>
-#include <QTimer>
+
 
 // ---- FluidSimItem ----
 
@@ -17,8 +17,6 @@ FluidSimItem::FluidSimItem(QQuickItem *parent)
 
 FluidSimItem::~FluidSimItem()
 {
-    if (m_timer)
-        m_timer->stop();
 }
 
 void FluidSimItem::setRunning(bool r)
@@ -28,18 +26,9 @@ void FluidSimItem::setRunning(bool r)
     m_running = r;
 
     if (r) {
-        if (!m_timer) {
-            m_timer = std::make_unique<QTimer>(this);
-            m_timer->setTimerType(Qt::PreciseTimer);
-            connect(m_timer.get(), &QTimer::timeout, this, &FluidSimItem::onFrameTick);
-        }
         if (!m_elapsed.isValid())
             m_elapsed.start();
         m_lastTick = m_elapsed.nsecsElapsed();
-        m_timer->start(16);
-    } else {
-        if (m_timer)
-            m_timer->stop();
     }
 
     emit runningChanged();
