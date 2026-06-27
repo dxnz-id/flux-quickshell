@@ -1,14 +1,9 @@
 #include "FluidSimEngine.h"
 #include "FluidSimShaders.h"
 #include <QColor>
-#include <QFile>
 #include <QtGui/private/qrhi_p.h>
-#include <QtCore/qfloat16.h>
 #include <cmath>
 #include <cstring>
-#include <random>
-#include <vector>
-#include <QDebug>
 
 #pragma pack(push, 1)
 
@@ -24,17 +19,6 @@ struct FluidUniforms {
 };
 static_assert(sizeof(FluidUniforms) == 32, "FluidUniforms must be 32 bytes");
 
-struct Direction {
-    float dir;
-    float _pad[3];
-};
-static_assert(sizeof(Direction) == 16, "Direction must be 16 bytes for std140");
-
-struct PushConstants {
-    float timestep;
-    float _pad[3];
-};
-static_assert(sizeof(PushConstants) == 16, "PushConstants must be 16 bytes for std140");
 
 struct GpuNoiseParams {
     float elapsedTime;
@@ -124,8 +108,6 @@ void FluidSimEngine::releaseResources()
     m_nearestSampler.reset();
 
     m_fluidUniformBuf.reset();
-    m_directionBuf.reset();
-    m_pushConstantBuf.reset();
     m_gpuNoiseBuf.reset();
     m_lineUniformBuf.reset();
 
@@ -276,8 +258,6 @@ void FluidSimEngine::createBuffers()
     };
 
     m_fluidUniformBuf = makeBuf("fluidUniforms", (int)sizeof(FluidUniforms), QRhiBuffer::UniformBuffer);
-    m_directionBuf = makeBuf("direction", (int)sizeof(Direction), QRhiBuffer::UniformBuffer);
-    m_pushConstantBuf = makeBuf("pushConstants", (int)sizeof(PushConstants), QRhiBuffer::UniformBuffer);
     m_gpuNoiseBuf = makeBuf("gpuNoise", (int)sizeof(GpuNoiseParams), QRhiBuffer::UniformBuffer);
     m_lineUniformBuf = makeBuf("lineUniforms", (int)sizeof(LineUniforms), QRhiBuffer::UniformBuffer);
 
@@ -302,13 +282,9 @@ void FluidSimEngine::updateUniforms()
     float centerFactor = 1.0f / (m_viscosity * dt);
     float stencilFactor = 1.0f / (4.0f + centerFactor);
     FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor, m_noiseMultiplier, 0.0f };
-    Direction dir = { 1.0f, {} };
-    PushConstants pc = { dt, {} };
 
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_fluidUniformBuf.get(), QByteArray((const char*)&fu, sizeof(fu)));
-    ub->uploadStaticBuffer(m_directionBuf.get(), QByteArray((const char*)&dir, sizeof(dir)));
-    ub->uploadStaticBuffer(m_pushConstantBuf.get(), QByteArray((const char*)&pc, sizeof(pc)));
     // Keep batch for next beginPass
     if (m_pendingUploadBatch) m_pendingUploadBatch->release();
     m_pendingUploadBatch = ub;
@@ -355,8 +331,6 @@ void FluidSimEngine::createGraphicsPipelines()
     QRhiSampler *nearest = m_nearestSampler.get();
     QRhiSampler *linear = m_linearSampler.get();
     QRhiBuffer *fluidUBuf = m_fluidUniformBuf.get();
-    QRhiBuffer *dirBuf = m_directionBuf.get();
-    QRhiBuffer *pushBuf = m_pushConstantBuf.get();
 
     QShader quadVs = FluidSimShaders::loadShader("fullscreen_quad");
     if (!quadVs.isValid())
@@ -577,13 +551,12 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
         updateUniforms();
 
     // Collect all pending uploads to process at first beginPass
-    for (auto *batch : {m_pendingUploadBatch, m_pendingDisplayUploadBatch, m_pendingQuadUploadBatch}) {
+    for (auto *batch : {m_pendingUploadBatch, m_pendingQuadUploadBatch}) {
         if (batch) {
             cb->resourceUpdate(batch);
         }
     }
     m_pendingUploadBatch = nullptr;
-    m_pendingDisplayUploadBatch = nullptr;
     m_pendingQuadUploadBatch = nullptr;
 
     int s = m_fluidSize;

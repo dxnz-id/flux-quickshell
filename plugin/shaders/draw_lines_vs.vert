@@ -16,7 +16,13 @@ layout(binding = 2, std140) uniform LineUniforms {
     float uGridRows;
     float uGridSpacingX;
     float uGridSpacingY;
-    float uPad0;
+    float uNoiseScaleX;
+    float uNoiseScaleY;
+    float uNoiseOffset1;
+    float uNoiseOffset2;
+    float uNoiseBlendFactor;
+    float uColorMode;
+    float _pad0[3];
 };
 
 layout(location = 0) out vec2 vVertex;

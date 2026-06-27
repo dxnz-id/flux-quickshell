@@ -133,12 +133,6 @@ private:
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA16F;
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescR32F;
 
-    // Texture refs
-    QRhiTexture *curVelTex() const { return m_velocityTex[m_velocityIndex].get(); }
-    QRhiTexture *nxtVelTex() const { return m_velocityTex[1 - m_velocityIndex].get(); }
-    QRhiTexture *curPressTex() const { return m_pressureTex[m_pressureIndex].get(); }
-    QRhiTexture *nxtPressTex() const { return m_pressureTex[1 - m_pressureIndex].get(); }
-
     // Draw a full-screen quad into the given render target using the given pass
     void drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt, PassPipeline &pass,
                   int width, int height, QRhiResourceUpdateBatch *ub = nullptr);
@@ -164,14 +158,11 @@ private:
 
     // Uniform buffers
     std::unique_ptr<QRhiBuffer> m_fluidUniformBuf;   // FluidUniforms (std140, 32 bytes)
-    std::unique_ptr<QRhiBuffer> m_directionBuf;       // Direction (float, 16 bytes std140)
-    std::unique_ptr<QRhiBuffer> m_pushConstantBuf;    // timestep (16 bytes std140)
-    std::unique_ptr<QRhiBuffer> m_gpuNoiseBuf;        // GpuNoiseParams (64 bytes std140)
+    std::unique_ptr<QRhiBuffer> m_gpuNoiseBuf;        // GpuNoiseParams (80 bytes std140)
     std::unique_ptr<QRhiBuffer> m_lineUniformBuf;     // LineUniforms (std140, 80 bytes)
 
     // Pending resource upload batches
     QRhiResourceUpdateBatch *m_pendingUploadBatch = nullptr;
-    QRhiResourceUpdateBatch *m_pendingDisplayUploadBatch = nullptr;
     QRhiResourceUpdateBatch *m_pendingQuadUploadBatch = nullptr;
 
     // Simulation state
@@ -184,7 +175,6 @@ private:
     float m_viscosity = 5.0f;
     float m_fluidTimestep = 1.0f / 60.0f;
     float m_dissipation = 0.0f;
-    int m_diffusionIterations = 3;
     int m_pressureIterations = 19;
     int m_stepPhase = 0;
     float m_noiseMultiplier = 0.45f;

@@ -2,6 +2,16 @@
 #include <QFile>
 #include <QCoreApplication>
 #include <QDir>
+#include <QProcessEnvironment>
+
+static QStringList qmlImportPaths()
+{
+    QStringList paths;
+    QString env = QProcessEnvironment::systemEnvironment().value("QML2_IMPORT_PATH");
+    for (const QString &p : env.split(':', Qt::SkipEmptyParts))
+        paths << p;
+    return paths;
+}
 
 QShader FluidSimShaders::loadShader(const QString &name)
 {
@@ -34,11 +44,15 @@ QString FluidSimShaders::shaderPath(const QString &name)
         QCoreApplication::applicationDirPath() + "/qml/FluidSim/shaders/",
         // Relative to current dir
         "shaders/",
+        "FluidSim/shaders/",
         // Relative to QML2_IMPORT_PATH / plugin deployment dir
         QDir::homePath() + "/.local/lib/qml/FluidSim/shaders/",
         // Resource path (for embedded Qt resources)
         ":/shaders/",
     };
+    // Add paths from QML2_IMPORT_PATH env var
+    for (const QString &ip : qmlImportPaths())
+        searchPaths.prepend(ip + "/FluidSim/shaders/");
     for (const QString &base : searchPaths) {
         QString path = base + name + ".qsb";
         if (QFile::exists(path))
