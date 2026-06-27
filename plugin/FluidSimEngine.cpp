@@ -1115,8 +1115,10 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     lu.grid_rows = frows;
     lu.grid_spacing_x = 1.0f / fcols;
     lu.grid_spacing_y = 1.0f / frows;
-    lu.noise_scale_x = 1.0f;
-    lu.noise_scale_y = 1.0f;
+    float sx = std::max(float(m_lineGridCols) / 171.0f, 1.0f);
+    float sy = std::max(float(m_lineGridRows) / 171.0f, 1.0f);
+    lu.noise_scale_x = 64.0f * sx;
+    lu.noise_scale_y = 64.0f * sy;
     lu.noise_offset_1 = m_lineNoiseOffset1;
     lu.noise_offset_2 = m_lineNoiseOffset2;
     lu.noise_blend_factor = m_lineNoiseBlendFactor;

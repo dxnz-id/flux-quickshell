@@ -30,12 +30,12 @@ const float PI = 3.141592653589793;
 const float TAU = 6.283185307179586;
 
 const vec4 COLOR_PALETTE[6] = vec4[](
-    vec4(0.236, 0.146, 0.261, 1.0),
-    vec4(0.671, 0.214, 0.200, 1.0),
-    vec4(0.903, 0.154, 0.022, 1.0),
-    vec4(0.953, 0.370, 0.088, 1.0),
-    vec4(0.951, 0.615, 0.231, 1.0),
-    vec4(0.531, 0.599, 0.716, 1.0)
+    vec4(60.219/255.0, 37.249/255.0, 66.430/255.0, 1.0),
+    vec4(170.962/255.0, 54.487/255.0, 50.966/255.0, 1.0),
+    vec4(230.299/255.0, 39.276/255.0, 5.545/255.0, 1.0),
+    vec4(242.924/255.0, 94.356/255.0, 22.419/255.0, 1.0),
+    vec4(242.435/255.0, 156.752/255.0, 58.979/255.0, 1.0),
+    vec4(135.291/255.0, 152.793/255.0, 182.473/255.0, 1.0)
 );
 
 vec4 permute(vec4 x) {
@@ -44,7 +44,7 @@ vec4 permute(vec4 x) {
 
 float snoise(vec3 v) {
     vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
-    vec3 Ci = vec3(floor(v + dot(v, C.yyy)).xy, 0.0);
+    vec3 Ci = floor(v + dot(v, vec3(C.y)));
     float Ci_d = dot(Ci, vec3(C.x));
     vec3 x0 = v - Ci + Ci_d;
     vec3 g = step(x0.yzx, x0.xyz);
@@ -116,12 +116,8 @@ void main() {
 
     float col = mod(float(idx), gp1);
     float row = floor(float(idx) / gp1);
-    ivec2 velSize = textureSize(uVelTex, 0);
-    ivec2 velPos = ivec2(
-        min(int(col), velSize.x - 1),
-        min(int(row), velSize.y - 1)
-    );
-    vec2 vel = texelFetch(uVelTex, velPos, 0).xy;
+    vec2 baseUV = vec2(col * uGridSpacingX, row * uGridSpacingY);
+    vec2 vel = texture(uVelTex, baseUV).xy;
 
     // 3D simplex noise for variance (time-scrolling via Z offset)
     vec2 scaledPos = vec2(uNoiseScaleX, uNoiseScaleY) * vec2(col * uGridSpacingX, row * uGridSpacingY);
