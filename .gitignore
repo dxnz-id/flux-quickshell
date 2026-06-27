@@ -15,3 +15,6 @@ dev/scratch/
 
 # OS
 .DS_Store
+
+# Opencode
+.opencode/*
