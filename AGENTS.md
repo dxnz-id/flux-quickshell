@@ -254,6 +254,11 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **MSAA 4x configurable** — `msaaSampleCount` Q_PROPERTY (1/2/4, default 4). `createDisplayPass()` creates MSAA + resolve textures. `recreateLineGraphicsPipelines()` ensures pipelines match current MSAA sample count.
 - [x] **RGBA32F state texture** — `m_lineStateTex` format RGBA16F → RGBA32F. Compute shader `layout(rgba32f)` must match C++ `QRhiTexture::RGBA32F` — mismatch silently corrupts state data.
 - [x] **Config.qml bridge** — `fluid {}` section added to dots-hyprfork Config.qml with all 10 parameters.
+- [x] **Large dead code cleanup** — removed Direction/PushConstants structs, 4 unused getters, 6 unused #include, 10 stale .qsb dari git, `*.qsb` gitignored. Deleted orphan QML (`test_fluid.qml`, `compare-main.qml`, `line-test.qml`, `quickshell-test/*`, `shell.qml`, `FluxSimulation.qml`), root `shaders/`, `qml/shaders` symlink, `plugin/compiled/`.
+- [x] **Sandbox pure black background** — `#0d0d1a` → `#000`
+- [x] **QTimer → QML Timer** — `onFrameTick()` pindah ke public slots, C++ QTimer dihapus. FluxBackground, test_fluid, shell.qml pake Timer 16ms di QML.
+- [x] **Opaque black display clear color** — `QColor(0,0,0,0)` → `QColor(0,0,0,255)` di display render pass, mencegah window background tembus.
+- [x] **QSB search path fix** — `FluidSimShaders::shaderPath()` parse `QML2_IMPORT_PATH` env var untuk quickshell compatibility.
 
 ### In Progress
 - [ ] Quickshell lockscreen integration — `FluxBackground.qml` → `LockScreen.qml`
@@ -261,33 +266,15 @@ Detail matematika dan parameter default harus didokumentasikan di
 ### Belum Dimulai
 - [ ] Integrasi ke dots-hyprfork lockscreen (`LockScreen.qml` + `GlobalStates`)
 - [ ] Lock state machine (Flux mode vs Normal mode)
-- [ ] Quickshell FrameAnimation integration (replace timer-driven loop)
 
 ### Known Issues
 
-- 2025-06-17: Diffuse dan pressure solver di flux-reference pakai **Jacobi iteration**
-  (bukan Gauss-Seidel). Shader membaca neighbor dari input texture yang sama
-  dan menulis ke output texture terpisah.
-- 2025-06-17: Multi-sampler ShaderEffect bug di Qt 6.11 — setiap
-  ShaderEffect hanya boleh punya SATU `sampler2D`. Tambahan sampler (kedua,
-  ketiga) menyebabkan output flat tanpa error. **Tidak relevan untuk C++ plugin**.
-- 2025-06-22: QSB strips `layout(binding=N)` dari GLSL 440 output;
-  Qt RHI OpenGL backend tidak rekonstruksi dari SPIR-V reflection.
-  Workaround: hardcode semua parameter sebagai constant di shader.
 - 2026-06-24: `QSGGeometryNode` dan `QSGSimpleTextureNode` yang dibuat manual dengan `new` TIDAK RENDER di Qt 6.11 RHI mode pada Hyprland/Wayland. Fix: gunakan `window()->createRectangleNode()` atau `window()->createImageNode()` untuk node yang render dengan benar.
 - 2026-06-24: `QQuickWindow::createTextureFromRhiTexture()` tidak bekerja untuk texture dari QRhi yang berbeda (separate context). Fix: readback→QImage→createTextureFromImage pipeline.
-- 2026-06-24: `QRhiTexture::createFrom(NativeTexture)` + `createTextureFromRhiTexture()` crash — membuat texture wrapper di SG's Rhi wrapping GL memory engine, lalu `createTextureFromRhiTexture()` return object valid tapi SG render crash (SIGSEGV/SIGABRT).
-- 2026-06-24: `QQuickWindowPrivate::createTextureFromNativeTexture()` crash (SIGABRT) — private API untuk bikin QSGTexture dari native GLuint gagal karena assertion internal Qt.
-- 2026-06-24: `QOpenGLExtraFunctions::glCopyImageSubData()` GPU blit approach crash — blit dari engine displayTex ke SG displayTex berhasil, tapi `createTextureFromRhiTexture` pada texture tujuan crash.
-- 2026-06-24: Readback-based display adalah satu-satunya pipeline yang stabil untuk separate QRhi architecture. CPU ~32% pada 60fps (overhead `createTextureFromImage()` upload 256KB/frame).
 - 2026-06-24: Qt 6.11 cleanup ordering bug: `releaseResources()` dipanggil dari item destructor setelah GL context di-destroy. Tidak fixable dari plugin side. Crash pada app exit saat `QRhi` destructor.
-- 2026-06-24: `QQuickWindow::update()` di threaded mode tidak trigger sync → `updatePaintNode()` tidak dipanggil. Fix: panggil `QQuickItem::update()` yang mark item dirty, forcing sync + `updatePaintNode()` setiap frame.
 - 2026-06-25: **QSB loading priority bug**: `FluidSimShaders::loadShader()` searches `applicationDirPath() + "/shaders/"` FIRST. Sandbox app (`dev/shader-sandbox/build/shader_sandbox`) has old QSB copies in its own `build/shaders/` dir that take priority over newly compiled ones in `plugin/build/FluidSim/shaders/`. Fix: sandbox CMake copies from plugin build dir (`../../plugin/build/FluidSim/shaders/`) instead of stale `shaders/compiled/`. **If you change shaders and the app still shows old behavior, check that QSB files in the sandbox build dir are updated.**
 - 2026-06-26: **Tiled texture layout required for state texture**: Line state texture must use `{256, texH}` format, NOT `{stateTexels, 1}` (very wide 1-row). `texelFetch` in vertex shader returns zeros when texture width exceeds implementation-dependent threshold on GLES2 backend. Always tile state textures to max width 256.
-- 2026-06-27: **MSAA 4x default** — configurable via `msaaSampleCount` Q_PROPERTY (1/2/4), default 4. Line graphics pipelines must be recreated when `m_rpDescRGBA8` changes (MSAA sample count). Extracted `recreateLineGraphicsPipelines()` called from init and `checkResize()`.
 - 2026-06-27: **RGBA32F required for state texture** — `m_lineStateTex` format changed from RGBA16F to RGBA32F. `initLineState()` data updated from `qfloat16*` to `float*`. Compute shader `layout(rgba16f)` → `layout(rgba32f)` — **FORMAT MUST MATCH** between C++ and GLSL, otherwise state data silently corrupts.
-- 2026-06-27: **Test shaders** (`test_compute.comp`, `adjust_advection.comp`, etc.) are stale — CMake compiles ALL `.comp` files in `shaders/`, remove unused ones.
-- 2026-06-27: `testComputeAndSSBO()` is dead code — removed. Compute pipeline validated by `line_update.comp` which is actively used.
 
 ---
 
@@ -811,3 +798,30 @@ ivec2 p0 = ivec2(base % texW, base / texW);
 - User confirmed "jauh lebih halus" after RGBA32F fix + MSAA 4x + 1px AA.
 - RGBA32F format mismatch was the root cause of all previous roughness.
 - Line quality now matches reference at equivalent resolution.
+
+## Session Summary (2026-06-27 Mid) — Large Dead Code Cleanup
+
+### Changes
+1. **Removed stale structs/buffers**: `struct Direction` + `m_directionBuf` (never bound, wasting 48B/frame upload), `struct PushConstants` + `m_pushConstantBuf` (never bound, 16B/frame), `m_pendingDisplayUploadBatch` (dead code path), `m_diffusionIterations` (unused, diffuse hardcoded to 3 iterations).
+2. **Removed 4 unused inline getters**: `curVelTex()`, `nxtVelTex()`, `curPressTex()`, `nxtPressTex()` — never called.
+3. **Removed 6 unused `#include`** directives.
+4. **10 stale `.qsb` removed from git tracking**; `*.qsb` added to `.gitignore`.
+5. **`fullscreen_quad.vert`**: removed unused `inTexCoord`/`vTexCoord` (was wasting 2×4 bytes per vertex).
+6. **`display_debug.frag`**: removed unused `DISPLAY_SIZE` constant.
+7. **`draw_lines_vs.vert`**: fixed truncated `LineUniforms` struct — was 12 floats, now 20 (added missing noise/color fields).
+8. **5 orphan QML files deleted**: `compare-main.qml`, `line-test.qml`, `quickshell-test/*` (broken, unused).
+9. **`plugin/test_fluid.qml`**, **`qml/shell.qml`**, **`qml/FluxSimulation.qml`** deleted (obsolete).
+10. **`qml/shaders` symlink** and **root `shaders/` dir** deleted (broken paths).
+11. **`plugin/compiled/`** deleted (stale untracked QSB files).
+12. **Sandbox background**: `#0d0d1a` → `#000` (pure black).
+
+## Session Summary (2026-06-27 Late) — Rapihkan + Opaque Black + QML Timer
+
+### Changes
+1. **FrameAnimation → QML Timer**: FrameAnimation tidak trigger di sandbox/quickshell (butuh animation driver aktif). Ganti dengan `Timer { interval: 16 }` di QML level. `onFrameTick()` pindah dari `private slots` ke `public slots` agar callable dari QML JavaScript. Semua QTimer-related code dihapus dari `FluidSimItem`.
+2. **Opaque black display clear color**: `QColor(0,0,0,0)` → `QColor(0,0,0,255)` di `stepLines()` render pass. Area tanpa garis sekarang opaque black, window background (`#111`) tidak tembus.
+3. **Plugin rebuild**: Opaque black fix perlu rebuild plugin library (`plugin/build/libfluidsimplugin.so`) — sandbox link langsung ke source dan sudah rebuild, tapi quickshell widget load .so dan perlu rebuild terpisah.
+
+### Resolved Issues
+- **Window background tembus**: Display pass clear color `(0,0,0,0)` + `QSGImageNode` alpha blending → window `#111` terlihat. Fix: opaque black clear color `(0,0,0,255)` + additive blend → alpha=255 di semua pixel.
+- **FrameAnimation tidak jalan**: `FrameAnimation.triggered` tidak fire di sandbox `QQmlApplicationEngine` maupun quickshell widget. Ganti dengan `Timer` 16ms yang reliable di semua Qt Quick context.
