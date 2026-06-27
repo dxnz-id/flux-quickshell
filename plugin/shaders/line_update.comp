@@ -16,15 +16,81 @@ layout(binding = 3, std140) uniform LineUniforms {
     float uGridRows;
     float uGridSpacingX;
     float uGridSpacingY;
-    float _pad0;
+    float uNoiseScaleX;
+    float uNoiseScaleY;
+    float uNoiseOffset1;
+    float uNoiseOffset2;
+    float uNoiseBlendFactor;
+    float uColorMode;
+    float _pad0[3];
 };
+layout(binding = 4) uniform sampler2D uColorTex;
 
-float hash(vec3 x) {
-    vec3 p = floor(x);
-    vec3 f = fract(x);
-    f = f * f * (3.0 - 2.0 * f);
-    float n = p.x + p.y * 57.0 + 113.0 * p.z;
-    return fract(sin(n) * 43758.5453123);
+const float PI = 3.141592653589793;
+const float TAU = 6.283185307179586;
+
+const vec4 COLOR_PALETTE[6] = vec4[](
+    vec4(0.236, 0.146, 0.261, 1.0),
+    vec4(0.671, 0.214, 0.200, 1.0),
+    vec4(0.903, 0.154, 0.022, 1.0),
+    vec4(0.953, 0.370, 0.088, 1.0),
+    vec4(0.951, 0.615, 0.231, 1.0),
+    vec4(0.531, 0.599, 0.716, 1.0)
+);
+
+vec4 permute(vec4 x) {
+    return (((x * 34.0) + 1.0) * x) - floor(((x * 34.0) + 1.0) * x * (1.0 / 289.0)) * 289.0;
+}
+
+float snoise(vec3 v) {
+    vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+    vec3 Ci = vec3(floor(v + dot(v, C.yyy)).xy, 0.0);
+    float Ci_d = dot(Ci, vec3(C.x));
+    vec3 x0 = v - Ci + Ci_d;
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min(g.xyz, l.zxy);
+    vec3 i2 = max(g.xyz, l.zxy);
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - 0.5;
+    vec3 ii = Ci - floor(Ci * (1.0 / 289.0)) * 289.0;
+    vec4 p = permute(permute(permute(ii.z + vec4(0.0, i1.z, i2.z, 1.0))
+                                  + ii.y + vec4(0.0, i1.y, i2.y, 1.0))
+                                  + ii.x + vec4(0.0, i1.x, i2.x, 1.0));
+    vec4 j = p - 49.0 * floor(p * (1.0 / 49.0));
+    vec4 j4 = floor(j * (1.0 / 7.0));
+    vec4 y4 = floor(j - 7.0 * j4);
+    vec4 x4 = j4 * (2.0 / 7.0) + 0.5 / 7.0 - 1.0;
+    vec4 y44 = y4 * (2.0 / 7.0) + 0.5 / 7.0 - 1.0;
+    vec4 h = 1.0 - abs(x4) - abs(y44);
+    vec4 b0 = vec4(x4.xy, y44.xy);
+    vec4 b1 = vec4(x4.zw, y44.zw);
+    vec4 s0 = floor(b0) * 2.0 + 1.0;
+    vec4 s1 = floor(b1) * 2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+    vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+    vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+    vec3 g0 = vec3(a0.xy, h.x);
+    vec3 g1 = vec3(a0.zw, h.y);
+    vec3 g2 = vec3(a1.xy, h.z);
+    vec3 g3 = vec3(a1.zw, h.w);
+    vec4 norm = inversesqrt(vec4(dot(g0, g0), dot(g1, g1), dot(g2, g2), dot(g3, g3)));
+    g0 *= norm.x; g1 *= norm.y; g2 *= norm.z; g3 *= norm.w;
+    vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), vec4(0.0));
+    m = m * m; m = m * m;
+    vec4 px = vec4(dot(x0, g0), dot(x1, g1), dot(x2, g2), dot(x3, g3));
+    return 42.0 * dot(m, px);
+}
+
+vec4 getColor(float value, float limit) {
+    float size = 6.0;
+    float slice = limit / size;
+    float rawIndex = mod(value, limit) / slice;
+    int index = int(floor(rawIndex));
+    int nextIndex = int(mod(float(index + 1), size));
+    float interp = fract(rawIndex);
+    return mix(COLOR_PALETTE[index], COLOR_PALETTE[nextIndex], interp);
 }
 
 void main() {
@@ -57,7 +123,15 @@ void main() {
     );
     vec2 vel = texelFetch(uVelTex, velPos, 0).xy;
 
-    float noise = hash(vec3(col * 0.1, row * 0.07, 0.0));
+    // 3D simplex noise for variance (time-scrolling via Z offset)
+    vec2 scaledPos = vec2(uNoiseScaleX, uNoiseScaleY) * vec2(col * uGridSpacingX, row * uGridSpacingY);
+    float noise1 = snoise(vec3(scaledPos, uNoiseOffset1));
+    float noise = noise1;
+    if (uNoiseBlendFactor > 0.0) {
+        float noise2 = snoise(vec3(scaledPos, uNoiseOffset2));
+        noise = mix(noise1, noise2, uNoiseBlendFactor);
+    }
+
     float variance = mix(1.0 - uLineVariance, 1.0, 0.5 + 0.5 * noise);
     float deltaBoost = mix(3.0, 25.0, 1.0 - variance);
     float momentumBoost = mix(3.0, 5.0, variance);
@@ -70,9 +144,27 @@ void main() {
     float newWidth = smoothstep(0.0, 1.0, widthBoost);
     float opacity = smoothstep(0.0, 1.0, widthBoost);
 
-    vec3 targetColor = vec3(clamp(vec2(1.0, 0.66) * (0.5 + vel), 0.0, 1.0), 0.5);
-    vec3 newColorVelocity = colorVelocity * (1.0 - 3.0 * uDeltaTime)
-        + (targetColor - color.rgb) * 90.0 * uDeltaTime;
+    // Color based on color_mode
+    vec3 targetColor;
+    float colorMomentumBoost = 3.0;
+    float colorDeltaBoost = 90.0;
+    int cm = int(uColorMode);
+
+    if (cm == 0) { // Original
+        targetColor = vec3(clamp(vec2(1.0, 0.66) * (0.5 + vel), 0.0, 1.0), 0.5);
+    } else if (cm == 1) { // ColorWheel
+        float angle = atan(vel.y, vel.x);
+        targetColor = getColor(angle + PI, TAU).rgb;
+    } else if (cm == 2) { // ImageTexture
+        targetColor = texture(uColorTex, 2.0 * vel + 0.5).rgb;
+        colorMomentumBoost = 5.0;
+        colorDeltaBoost = 10.0;
+    } else {
+        targetColor = vec3(clamp(vec2(1.0, 0.66) * (0.5 + vel), 0.0, 1.0), 0.5);
+    }
+
+    vec3 newColorVelocity = colorVelocity * (1.0 - colorMomentumBoost * uDeltaTime)
+        + (targetColor - color.rgb) * colorDeltaBoost * uDeltaTime;
     vec4 newColor = vec4(clamp(color.rgb + uDeltaTime * newColorVelocity, 0.0, 1.0), opacity);
 
     imageStore(uOutImg, p0, vec4(newEndpoint, newVelocity));

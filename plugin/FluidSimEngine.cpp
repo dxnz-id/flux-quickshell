@@ -57,9 +57,15 @@ struct LineUniforms {
     float grid_rows;     // frows = floor(logicalH / logicalW * fcols)
     float grid_spacing_x; // 1.0 / fcols
     float grid_spacing_y; // 1.0 / frows
-    float _pad0;
+    float noise_scale_x;
+    float noise_scale_y;
+    float noise_offset_1;
+    float noise_offset_2;
+    float noise_blend_factor;
+    float color_mode;
+    float _pad0[3];
 };
-static_assert(sizeof(LineUniforms) == 48, "LineUniforms must be 48 bytes");
+static_assert(sizeof(LineUniforms) == 80, "LineUniforms must be 80 bytes");
 #pragma pack(pop)
 
 struct ChannelCfg {
@@ -634,6 +640,7 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
 
         // Run line update compute + render when mode is 5
         if (m_debugMode == 5) {
+            tickLineNoise(dt);
             stepLines(cb);
         }
 
@@ -705,6 +712,24 @@ void FluidSimEngine::updateNoiseChannels(float dt)
             ch.offset_2 = 0.0f;
             ch.blend_factor = 0.0f;
         }
+    }
+}
+
+void FluidSimEngine::tickLineNoise(float dt)
+{
+    const float BLEND_THRESHOLD = 4.0f;
+    const float BASE_OFFSET = 0.0015f;
+    float perturb = 1.0f + 0.2f * sinf(0.010f * m_elapsedTime * 6.2831853f);
+    float offset = BASE_OFFSET * perturb;
+    m_lineNoiseOffset1 += offset;
+    if (m_lineNoiseOffset1 > BLEND_THRESHOLD) {
+        m_lineNoiseOffset2 += offset;
+        m_lineNoiseBlendFactor += BASE_OFFSET;
+    }
+    if (m_lineNoiseBlendFactor > 1.0f) {
+        m_lineNoiseOffset1 = m_lineNoiseOffset2;
+        m_lineNoiseOffset2 = 0.0f;
+        m_lineNoiseBlendFactor = 0.0f;
     }
 }
 
@@ -848,12 +873,97 @@ void FluidSimEngine::createLinePipelines()
     blend.dstAlpha = QRhiGraphicsPipeline::One;
     m_lineDrawPipeline->setTargetBlends({blend});
 
-    m_linePipelineReady = m_lineDrawPipeline->create();
-
-    if (!m_linePipelineReady) {
+    if (!m_lineDrawPipeline->create()) {
         fprintf(stderr, "  Lines: draw pipeline FAILED\n");
         return;
     }
+
+    // --- Color texture for ImageTexture mode (256x1 RGBA8 rainbow gradient) ---
+    m_lineColorTex.reset(m_rhi->newTexture(
+        QRhiTexture::RGBA8, {256, 1}, 1, QRhiTexture::UsedAsTransferSource));
+    m_lineColorTex->setName("lineColorTex");
+    m_lineColorTex->create();
+    m_lineColorSampler.reset(m_rhi->newSampler(
+        QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
+        QRhiSampler::Repeat, QRhiSampler::ClampToEdge));
+    m_lineColorSampler->setName("lineColorSampler");
+    m_lineColorSampler->create();
+    {
+        QByteArray colData(256 * 4, 0);
+        uint8_t *cp = (uint8_t*)colData.data();
+        for (int x = 0; x < 256; x++) {
+            float t = float(x) / 255.0f;
+            float r = 0.5f + 0.5f * sinf(t * 6.28318f + 0.0f);
+            float g = 0.5f + 0.5f * sinf(t * 6.28318f + 2.094f);
+            float b = 0.5f + 0.5f * sinf(t * 6.28318f + 4.188f);
+            cp[x*4+0] = uint8_t(std::min(std::max(r * 255.0f, 0.0f), 255.0f));
+            cp[x*4+1] = uint8_t(std::min(std::max(g * 255.0f, 0.0f), 255.0f));
+            cp[x*4+2] = uint8_t(std::min(std::max(b * 255.0f, 0.0f), 255.0f));
+            cp[x*4+3] = 255;
+        }
+        QRhiCommandBuffer *cb = nullptr;
+        if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) { m_linePipelineReady = false; return; }
+        QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
+        QRhiTextureSubresourceUploadDescription subdesc(colData, colData.size());
+        ub->uploadTexture(m_lineColorTex.get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, subdesc)));
+        cb->resourceUpdate(ub);
+        m_rhi->endOffscreenFrame();
+    }
+
+    // --- Graphics pipeline (draw_endpoint) ---
+    QShader endpointVs = FluidSimShaders::loadShader("draw_endpoint_vs");
+    if (!endpointVs.isValid()) { fprintf(stderr, "  Lines: draw_endpoint_vs.vert FAILED\n"); return; }
+    QShader endpointFs = FluidSimShaders::loadShader("draw_endpoint_fs");
+    if (!endpointFs.isValid()) { fprintf(stderr, "  Lines: draw_endpoint_fs.frag FAILED\n"); return; }
+
+    m_lineFrameEndpointSrb.reset();
+    m_lineEndpointPipeline.reset(m_rhi->newGraphicsPipeline());
+
+    auto epDummySrb = std::unique_ptr<QRhiShaderResourceBindings>(
+        m_rhi->newShaderResourceBindings());
+    epDummySrb->setBindings({
+        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage,
+            m_lineUniformBuf.get()),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::VertexStage,
+            m_lineStateTex[0].get(), m_nearestSampler.get()),
+    });
+    epDummySrb->create();
+
+    m_lineEndpointPipeline->setShaderStages({
+        { QRhiShaderStage::Vertex, endpointVs },
+        { QRhiShaderStage::Fragment, endpointFs } });
+    m_lineEndpointPipeline->setShaderResourceBindings(epDummySrb.get());
+    m_lineEndpointPipeline->setRenderPassDescriptor(m_rpDescRGBA8.get());
+
+    {
+        QRhiVertexInputLayout inputLayout;
+        inputLayout.setBindings({
+            QRhiVertexInputBinding(2 * sizeof(float)),
+            QRhiVertexInputBinding(2 * sizeof(float), QRhiVertexInputBinding::PerInstance),
+        });
+        inputLayout.setAttributes({
+            QRhiVertexInputAttribute(0, 0, QRhiVertexInputAttribute::Float2, 0),
+            QRhiVertexInputAttribute(1, 1, QRhiVertexInputAttribute::Float2, 0),
+        });
+        m_lineEndpointPipeline->setVertexInputLayout(inputLayout);
+    }
+
+    m_lineEndpointPipeline->setTopology(QRhiGraphicsPipeline::Triangles);
+
+    QRhiGraphicsPipeline::TargetBlend epBlend;
+    epBlend.enable = true;
+    epBlend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    epBlend.dstColor = QRhiGraphicsPipeline::One;
+    epBlend.srcAlpha = QRhiGraphicsPipeline::One;
+    epBlend.dstAlpha = QRhiGraphicsPipeline::One;
+    m_lineEndpointPipeline->setTargetBlends({epBlend});
+
+    if (!m_lineEndpointPipeline->create()) {
+        fprintf(stderr, "  Lines: endpoint pipeline FAILED\n");
+        return;
+    }
+
+    m_linePipelineReady = true;
 
     fprintf(stderr, "  Lines: pipelines OK (%dx%d=%d lines)\n",
         m_lineGridCols, m_lineGridRows, m_lineCount);
@@ -986,7 +1096,7 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     int velIdx = m_velocityIndex;
     int ds = m_displaySize;
 
-    // Upload line uniforms (match reference get_line_scale_factor)
+    // Upload line uniforms (match reference get_line_scale_factor + noise)
     float aspect = float(m_logicalW) / float(m_logicalH);
     float p = 1.0f / aspect;
     float screenSize = fmin((1.0f - p) * float(m_logicalW) + p * float(m_logicalH), 2000.0f);
@@ -1005,13 +1115,19 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     lu.grid_rows = frows;
     lu.grid_spacing_x = 1.0f / fcols;
     lu.grid_spacing_y = 1.0f / frows;
-    lu._pad0 = 0.0f;
+    lu.noise_scale_x = 1.0f;
+    lu.noise_scale_y = 1.0f;
+    lu.noise_offset_1 = m_lineNoiseOffset1;
+    lu.noise_offset_2 = m_lineNoiseOffset2;
+    lu.noise_blend_factor = m_lineNoiseBlendFactor;
+    lu.color_mode = 0.0f; // Original mode for now
+    memset(lu._pad0, 0, sizeof(lu._pad0));
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_lineUniformBuf.get(), QByteArray((const char*)&lu, sizeof(lu)));
     cb->resourceUpdate(ub);
 
     // 1. Compute pass: update particle state
-    // Build dynamic compute SRB with current velocity, state ping-pong, and line UBO
+    // Build dynamic compute SRB with current velocity, state ping-pong, line UBO, and color tex
     m_lineFrameComputeSrb.reset(m_rhi->newShaderResourceBindings());
     m_lineFrameComputeSrb->setBindings({
         QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::ComputeStage,
@@ -1022,6 +1138,8 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
             m_lineStateTex[writeIdx].get(), 0),
         QRhiShaderResourceBinding::uniformBuffer(3, QRhiShaderResourceBinding::ComputeStage,
             m_lineUniformBuf.get()),
+        QRhiShaderResourceBinding::sampledTexture(4, QRhiShaderResourceBinding::ComputeStage,
+            m_lineColorTex.get(), m_lineColorSampler.get()),
     });
     m_lineFrameComputeSrb->create();
 
@@ -1034,11 +1152,12 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
 
     m_lineStateReadIdx = writeIdx;
 
-    // 2. Render pass: draw instanced lines on black
+    // 2. Render pass: draw instanced lines + endpoints on black
     cb->beginPass(m_displayRT.get(), QColor(0, 0, 0, 0), QRhiDepthStencilClearValue{1.0f, 0});
-    cb->setGraphicsPipeline(m_lineDrawPipeline.get());
+    cb->setViewport(QRhiViewport(0, 0, float(ds), float(ds)));
 
-    // Build dynamic draw SRB (velocity, state, and UBO bound to vertex stage)
+    // 2a. Draw lines
+    cb->setGraphicsPipeline(m_lineDrawPipeline.get());
     m_lineFrameDrawSrb.reset(m_rhi->newShaderResourceBindings());
     m_lineFrameDrawSrb->setBindings({
         QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::VertexStage,
@@ -1051,15 +1170,27 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     m_lineFrameDrawSrb->create();
     cb->setShaderResources(m_lineFrameDrawSrb.get());
 
-    cb->setViewport(QRhiViewport(0, 0, float(ds), float(ds)));
-
-    // Set 2 vertex bindings: vertex quad (PV) + basepoints (PI)
     QRhiCommandBuffer::VertexInput vertBindings[2] = {
         { m_lineVertexBuf.get(), 0 },
         { m_lineBasepointBuf.get(), 0 },
     };
     cb->setVertexInput(0, 2, vertBindings);
     cb->draw(6, lineCount);
+
+    // 2b. Draw endpoints
+    cb->setGraphicsPipeline(m_lineEndpointPipeline.get());
+    m_lineFrameEndpointSrb.reset(m_rhi->newShaderResourceBindings());
+    m_lineFrameEndpointSrb->setBindings({
+        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage,
+            m_lineUniformBuf.get()),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::VertexStage,
+            m_lineStateTex[m_lineStateReadIdx].get(), m_nearestSampler.get()),
+    });
+    m_lineFrameEndpointSrb->create();
+    cb->setShaderResources(m_lineFrameEndpointSrb.get());
+    cb->setVertexInput(0, 2, vertBindings);
+    cb->draw(6, lineCount);
+
     cb->endPass();
 }
 

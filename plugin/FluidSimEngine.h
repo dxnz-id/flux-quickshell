@@ -45,6 +45,7 @@ private:
     void initLineState();
     void initBasepoints();
     void updateNoiseChannels(float dt);
+    void tickLineNoise(float dt);
 
     QRhiShaderResourceBindings *buildBinding(std::initializer_list<QRhiShaderResourceBinding> list);
 
@@ -87,14 +88,21 @@ private:
     int m_lineGridRows = 0;
     int m_lineCount = 0;
     std::unique_ptr<QRhiTexture> m_lineStateTex[2];  // RGBA16F ping-pong (lineCount*3, 1)
-    std::unique_ptr<QRhiBuffer> m_lineVertexBuf;      // 6 vec2 quad vertices
+    std::unique_ptr<QRhiBuffer> m_lineVertexBuf;      // 6 vec2 quad vertices (LINE_VERTICES)
     std::unique_ptr<QRhiBuffer> m_lineBasepointBuf;   // vec2[lineCount] PerInstance
     std::unique_ptr<QRhiComputePipeline> m_lineUpdatePipeline;
     std::unique_ptr<QRhiGraphicsPipeline> m_lineDrawPipeline;
+    std::unique_ptr<QRhiGraphicsPipeline> m_lineEndpointPipeline;
     std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameComputeSrb;  // rebuilt each frame in stepLines
     std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameDrawSrb;     // rebuilt each frame in stepLines
+    std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameEndpointSrb; // rebuilt each frame in stepLines
+    std::unique_ptr<QRhiTexture> m_lineColorTex;       // 256x1 RGBA8 gradient for ImageTexture mode
+    std::unique_ptr<QRhiSampler> m_lineColorSampler;   // linear sampler for color tex
     int m_lineStateReadIdx = 0;
     bool m_linePipelineReady = false;
+    float m_lineNoiseOffset1 = 0.0f;
+    float m_lineNoiseOffset2 = 0.0f;
+    float m_lineNoiseBlendFactor = 0.0f;
 
     // Render targets for solver passes (one per writable texture)
     std::unique_ptr<QRhiTextureRenderTarget> m_velRT[2];
@@ -142,7 +150,7 @@ private:
     std::unique_ptr<QRhiBuffer> m_directionBuf;       // Direction (float, 16 bytes std140)
     std::unique_ptr<QRhiBuffer> m_pushConstantBuf;    // timestep (16 bytes std140)
     std::unique_ptr<QRhiBuffer> m_gpuNoiseBuf;        // GpuNoiseParams (64 bytes std140)
-    std::unique_ptr<QRhiBuffer> m_lineUniformBuf;     // LineUniforms (std140, 48 bytes)
+    std::unique_ptr<QRhiBuffer> m_lineUniformBuf;     // LineUniforms (std140, 80 bytes)
 
     // Pending resource upload batches
     QRhiResourceUpdateBatch *m_pendingUploadBatch = nullptr;

@@ -5,10 +5,10 @@ layout(location = 2) in float vLineOffset;
 layout(location = 0) out vec4 fragColor;
 
 void main() {
-    float a = vColor.a;
-    float lineDist = abs(vVertex.x);
-    float alongLine = vVertex.y - vLineOffset;
-    float d = max(lineDist, vLineOffset - alongLine);
-    a *= 1.0 - smoothstep(0.0, 1.5, d);
+    float fade = smoothstep(vLineOffset, 1.0, vVertex.y);
+    float edgeWidth = fwidth(vVertex.x);
+    float xOffset = abs(vVertex.x);
+    float smoothEdges = 1.0 - smoothstep(0.5 - edgeWidth, 0.5, xOffset);
+    float a = vColor.a * fade * smoothEdges;
     fragColor = vec4(vColor.rgb, a);
 }
