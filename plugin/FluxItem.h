@@ -13,28 +13,28 @@
 #include <QOpenGLFunctions>
 #include <memory>
 
-class FluidSimEngine;
-class FluidSimItem;
+class FluxEngine;
+class FluxItem;
 class QTimer;
 
 class EngineStepJob : public QRunnable {
 public:
-    EngineStepJob(FluidSimEngine *engine, QRhi *ourRhi,
+    EngineStepJob(FluxEngine *engine, QRhi *ourRhi,
                   QOpenGLContext *sharedCtx, QOffscreenSurface *fallbackSurface,
-                  FluidSimItem *item, float dt)
+                  FluxItem *item, float dt)
         : m_engine(engine), m_ourRhi(ourRhi), m_sharedCtx(sharedCtx),
           m_fallbackSurface(fallbackSurface), m_item(item), m_dt(dt) {}
     void run() override;
 private:
-    FluidSimEngine *m_engine;
+    FluxEngine *m_engine;
     QRhi *m_ourRhi;
     QOpenGLContext *m_sharedCtx;
     QOffscreenSurface *m_fallbackSurface;
-    FluidSimItem *m_item;
+    FluxItem *m_item;
     float m_dt;
 };
 
-class FluidSimItem : public QQuickItem {
+class FluxItem : public QQuickItem {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(bool running READ isRunning WRITE setRunning NOTIFY runningChanged)
@@ -53,8 +53,8 @@ class FluidSimItem : public QQuickItem {
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
     Q_PROPERTY(int msaaSampleCount READ msaaSampleCount WRITE setMsaaSampleCount NOTIFY msaaSampleCountChanged)
 public:
-    explicit FluidSimItem(QQuickItem *parent = nullptr);
-    ~FluidSimItem();
+    explicit FluxItem(QQuickItem *parent = nullptr);
+    ~FluxItem();
 
     bool isRunning() const { return m_running; }
     void setRunning(bool r);
@@ -120,7 +120,7 @@ public slots:
     void onFrameTick();
 
 private:
-    std::unique_ptr<FluidSimEngine> m_engine;
+    std::unique_ptr<FluxEngine> m_engine;
     bool m_running = false;
     int m_frameCount = 0;
     int m_simSize = 128;

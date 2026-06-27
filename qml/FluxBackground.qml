@@ -1,5 +1,5 @@
 import QtQuick
-import FluidSim 1.0
+import FluxEngine 1.0
 
 Item {
     id: root
@@ -17,7 +17,7 @@ Item {
     property alias zoom: sim.zoom
     property alias msaaSampleCount: sim.msaaSampleCount
 
-    FluidSimItem {
+    FluxItem {
         id: sim
         anchors.fill: parent
         simSize: 128

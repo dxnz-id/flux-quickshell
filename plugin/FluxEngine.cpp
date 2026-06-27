@@ -1,5 +1,5 @@
-#include "FluidSimEngine.h"
-#include "FluidSimShaders.h"
+#include "FluxEngine.h"
+#include "FluxShaders.h"
 #include <QColor>
 #include <QtGui/private/qrhi_p.h>
 #include <cmath>
@@ -69,18 +69,18 @@ static constexpr ChannelCfg CHANNEL_CFG[3] = {
 
 static constexpr float MAX_ELAPSED = 1000.0f;
 
-FluidSimEngine::FluidSimEngine(QObject *parent)
+FluxEngine::FluxEngine(QObject *parent)
     : QObject(parent)
 {
     initNoiseChannels();
 }
 
-FluidSimEngine::~FluidSimEngine()
+FluxEngine::~FluxEngine()
 {
     releaseResources();
 }
 
-void FluidSimEngine::initNoiseChannels()
+void FluxEngine::initNoiseChannels()
 {
     for (int i = 0; i < NUM_CHANNELS; i++) {
         float initOffset = (float(std::rand()) / float(RAND_MAX)) * 1000.0f;
@@ -95,7 +95,7 @@ void FluidSimEngine::initNoiseChannels()
     }
 }
 
-void FluidSimEngine::releaseResources()
+void FluxEngine::releaseResources()
 {
     m_velocityTex[0].reset(); m_velocityTex[1].reset();
     m_pressureTex[0].reset(); m_pressureTex[1].reset();
@@ -158,12 +158,12 @@ void FluidSimEngine::releaseResources()
     m_initialized = false;
 }
 
-void FluidSimEngine::init(QRhi *rhi, int fluidSize)
+void FluxEngine::init(QRhi *rhi, int fluidSize)
 {
     m_rhi = rhi;
     m_fluidSize = fluidSize;
 
-    fprintf(stderr, "FluidSimEngine::init: rhi=%p backend=%d\n",
+    fprintf(stderr, "FluxEngine::init: rhi=%p backend=%d\n",
         (void*)rhi, (int)rhi->backend());
 
     if (!m_rhi->isTextureFormatSupported(QRhiTexture::RGBA16F, QRhiTexture::RenderTarget)) {
@@ -181,10 +181,10 @@ void FluidSimEngine::init(QRhi *rhi, int fluidSize)
     createLinePipelines();
 
     m_initialized = true;
-    fprintf(stderr, "FluidSimEngine::init DONE\n");
+    fprintf(stderr, "FluxEngine::init DONE\n");
 }
 
-void FluidSimEngine::createTextures()
+void FluxEngine::createTextures()
 {
     auto makeTex = [&](const char *name, int w, int h,
                        QRhiTexture::Format fmt = QRhiTexture::RGBA16F,
@@ -234,7 +234,7 @@ void FluidSimEngine::createTextures()
     m_pendingUploadBatch = ub;
 }
 
-void FluidSimEngine::createSamplers()
+void FluxEngine::createSamplers()
 {
     m_linearSampler.reset(m_rhi->newSampler(
         QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
@@ -247,7 +247,7 @@ void FluidSimEngine::createSamplers()
     m_nearestSampler->create();
 }
 
-void FluidSimEngine::createBuffers()
+void FluxEngine::createBuffers()
 {
     auto makeBuf = [&](const char *name, int size, QRhiBuffer::UsageFlags usage) {
         auto b = std::unique_ptr<QRhiBuffer>(m_rhi->newBuffer(
@@ -267,7 +267,7 @@ void FluidSimEngine::createBuffers()
         1.0f / (4.0f + 1.0f / (m_viscosity * m_fluidTimestep)));
 }
 
-QRhiShaderResourceBindings *FluidSimEngine::buildBinding(
+QRhiShaderResourceBindings *FluxEngine::buildBinding(
     std::initializer_list<QRhiShaderResourceBinding> list)
 {
     auto srb = std::unique_ptr<QRhiShaderResourceBindings>(m_rhi->newShaderResourceBindings());
@@ -276,7 +276,7 @@ QRhiShaderResourceBindings *FluidSimEngine::buildBinding(
     return srb.release();
 }
 
-void FluidSimEngine::updateUniforms()
+void FluxEngine::updateUniforms()
 {
     float dt = m_fluidTimestep;
     float centerFactor = 1.0f / (m_viscosity * dt);
@@ -291,7 +291,7 @@ void FluidSimEngine::updateUniforms()
     m_paramsDirty = false;
 }
 
-void FluidSimEngine::createRenderTargets()
+void FluxEngine::createRenderTargets()
 {
     // Create first RGBA16F render target to obtain a shared RPDesc
     m_velRT[0].reset(m_rhi->newTextureRenderTarget({m_velocityTex[0].get()}));
@@ -326,13 +326,13 @@ void FluidSimEngine::createRenderTargets()
     m_divergenceRT.reset(makeSharedRT(m_divergenceTex.get(), m_rpDescR32F.get(), "divergenceRT"));
 }
 
-void FluidSimEngine::createGraphicsPipelines()
+void FluxEngine::createGraphicsPipelines()
 {
     QRhiSampler *nearest = m_nearestSampler.get();
     QRhiSampler *linear = m_linearSampler.get();
     QRhiBuffer *fluidUBuf = m_fluidUniformBuf.get();
 
-    QShader quadVs = FluidSimShaders::loadShader("fullscreen_quad");
+    QShader quadVs = FluxShaders::loadShader("fullscreen_quad");
     if (!quadVs.isValid())
         fprintf(stderr, "  CRITICAL: fullscreen_quad.vert missing!\n");
 
@@ -353,7 +353,7 @@ void FluidSimEngine::createGraphicsPipelines()
                             QRhiRenderPassDescriptor *rpDesc,
                             std::unique_ptr<QRhiGraphicsPipeline> &outPipeline)
     {
-        QShader fs = FluidSimShaders::loadShader(fragName);
+        QShader fs = FluxShaders::loadShader(fragName);
         if (!fs.isValid()) {
             fprintf(stderr, "  CRITICAL: %s shader missing!\n", fragName);
             return;
@@ -473,7 +473,7 @@ void FluidSimEngine::createGraphicsPipelines()
     fprintf(stderr, "  All solver pipelines created\n");
 }
 
-void FluidSimEngine::createDisplayPass()
+void FluxEngine::createDisplayPass()
 {
     int ds = m_displaySize;
     int ms = m_msaaSamples;
@@ -511,8 +511,8 @@ void FluidSimEngine::createDisplayPass()
     m_displayRT->create();
 
     auto makeDisplayPipeline = [&](const QString &fragName, PassPipeline &out) {
-        QShader vs = FluidSimShaders::loadShader("fullscreen_quad");
-        QShader fs = FluidSimShaders::loadShader(fragName);
+        QShader vs = FluxShaders::loadShader("fullscreen_quad");
+        QShader fs = FluxShaders::loadShader(fragName);
         // Temp SRB just for pipeline creation (will be replaced each frame)
         out.srb.reset(buildBinding({
             QRhiShaderResourceBinding::sampledTexture(0, QRhiShaderResourceBinding::FragmentStage,
@@ -542,7 +542,7 @@ void FluidSimEngine::createDisplayPass()
 
 static constexpr int PASSES_PER_FRAME = 32;
 
-void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
+void FluxEngine::step(QRhiCommandBuffer *cb, float dt)
 {
     if (!m_initialized) return;
 
@@ -707,7 +707,7 @@ void FluidSimEngine::step(QRhiCommandBuffer *cb, float dt)
 
 }
 
-void FluidSimEngine::updateNoiseChannels(float dt)
+void FluxEngine::updateNoiseChannels(float dt)
 {
     m_elapsedTime += dt;
     if (m_elapsedTime >= MAX_ELAPSED)
@@ -727,7 +727,7 @@ void FluidSimEngine::updateNoiseChannels(float dt)
     }
 }
 
-void FluidSimEngine::tickLineNoise(float dt)
+void FluxEngine::tickLineNoise(float dt)
 {
     const float BLEND_THRESHOLD = 4.0f;
     const float BASE_OFFSET = 0.0015f;
@@ -745,14 +745,14 @@ void FluidSimEngine::tickLineNoise(float dt)
     }
 }
 
-void FluidSimEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt,
+void FluxEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt,
                               PassPipeline &pass, int w, int h,
                               QRhiResourceUpdateBatch *ub)
 {
     drawPass(cb, rt, pass.pipeline.get(), pass.srb.get(), w, h, ub);
 }
 
-void FluidSimEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt,
+void FluxEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt,
                               QRhiGraphicsPipeline *pipeline, QRhiShaderResourceBindings *srb,
                               int w, int h, QRhiResourceUpdateBatch *ub)
 {
@@ -766,7 +766,7 @@ void FluidSimEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt
     cb->endPass();
 }
 
-void FluidSimEngine::createLinePipelines()
+void FluxEngine::createLinePipelines()
 {
     if (!m_rhi->isFeatureSupported(QRhi::Compute)) {
         fprintf(stderr, "  Lines: Compute not supported, skipping\n");
@@ -807,7 +807,7 @@ void FluidSimEngine::createLinePipelines()
     }
 
     // Load shaders
-    QShader updateCs = FluidSimShaders::loadShader("line_update");
+    QShader updateCs = FluxShaders::loadShader("line_update");
     if (!updateCs.isValid()) { fprintf(stderr, "  Lines: line_update.comp FAILED\n"); return; }
 
     // --- Compute pipeline (line_update) ---
@@ -879,14 +879,14 @@ void FluidSimEngine::createLinePipelines()
         m_lineGridCols, m_lineGridRows, m_lineCount);
 }
 
-void FluidSimEngine::recreateLineGraphicsPipelines()
+void FluxEngine::recreateLineGraphicsPipelines()
 {
     if (!m_linePipelineReady) return;
 
-    QShader drawVs = FluidSimShaders::loadShader("draw_lines_vs");
-    QShader drawFs = FluidSimShaders::loadShader("draw_lines_fs");
-    QShader endpointVs = FluidSimShaders::loadShader("draw_endpoint_vs");
-    QShader endpointFs = FluidSimShaders::loadShader("draw_endpoint_fs");
+    QShader drawVs = FluxShaders::loadShader("draw_lines_vs");
+    QShader drawFs = FluxShaders::loadShader("draw_lines_fs");
+    QShader endpointVs = FluxShaders::loadShader("draw_endpoint_vs");
+    QShader endpointFs = FluxShaders::loadShader("draw_endpoint_fs");
 
     // --- Draw pipeline ---
     m_lineDrawPipeline.reset();
@@ -966,7 +966,7 @@ void FluidSimEngine::recreateLineGraphicsPipelines()
     m_lineEndpointPipeline->create();
 }
 
-void FluidSimEngine::initLineState()
+void FluxEngine::initLineState()
 {
     int stateTexels = m_lineCount * 3;
     int texW = 256;
@@ -1013,7 +1013,7 @@ void FluidSimEngine::initLineState()
     m_rhi->endOffscreenFrame();
 }
 
-void FluidSimEngine::initBasepoints()
+void FluxEngine::initBasepoints()
 {
     float gsx = 1.0f / float(m_lineGridCols - 1);
     float gsy = 1.0f / float(m_lineGridRows - 1);
@@ -1038,7 +1038,7 @@ void FluidSimEngine::initBasepoints()
     m_rhi->endOffscreenFrame();
 }
 
-void FluidSimEngine::resizeDisplay(int logicalW, int logicalH, int displayTexSize)
+void FluxEngine::resizeDisplay(int logicalW, int logicalH, int displayTexSize)
 {
     m_desiredLogicalW = logicalW;
     m_desiredLogicalH = logicalH;
@@ -1046,7 +1046,7 @@ void FluidSimEngine::resizeDisplay(int logicalW, int logicalH, int displayTexSiz
     m_resizeNeeded = true;
 }
 
-void FluidSimEngine::checkResize()
+void FluxEngine::checkResize()
 {
     if (!m_resizeNeeded) return;
 
@@ -1110,7 +1110,7 @@ void FluidSimEngine::checkResize()
     m_resizeNeeded = false;
 }
 
-void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
+void FluxEngine::stepLines(QRhiCommandBuffer *cb)
 {
     if (!m_lineUpdatePipeline || !m_linePipelineReady)
         return;

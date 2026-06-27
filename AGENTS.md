@@ -7,7 +7,7 @@ Baca seluruh dokumen sebelum mengerjakan task apapun.
 
 ## CRITICAL: Pipeline Telah Migrasi ke C++ QRhi Plugin
 
-Simulasi fluida sekarang dijalankan sebagai **C++ QRhi plugin** (`FluidSim` QML namespace),
+Simulasi fluida sekarang dijalankan sebagai **C++ QRhi plugin** (`FluxEngine` QML namespace),
 BUKAN QML ShaderEffect chain. Ini perubahan arsitektur fundamental.
 
 ### Implikasi
@@ -98,9 +98,9 @@ flux-quickshell/
 - **Plugin**: C++ QML module di `plugin/`, build via CMake. Output: `libfluidsim.so` + `libfluidsimplugin.so`.
 - **Rendering**: Qt RHI, backend OpenGL 4.6 (default di sistem target, bukan Vulkan).
 - **Shader compile**: `qsb --glsl "440"` (bukan `--qt6`), karena ESSL 100 output tidak support `texelFetch`/`textureSize`.
-- **Engine (C++)** `FluidSimEngine`: Semua pipeline solver (advection, diffusion, pressure, noise) via QRhi draw commands.
+- **Engine (C++)** `FluxEngine`: Semua pipeline solver (advection, diffusion, pressure, noise) via QRhi draw commands.
   Multi-pass sequential dalam satu `QRhiCommandBuffer` via `beginPass`/`endPass` pairs.
-- **Display**: `FluidSimItem` (QQuickItem) → own GL context (share dengan SG) + own QRhi. Engine step di `EngineStepJob` (QRunnable) via `QQuickWindow::AfterSwapStage`. Display readback `displayTex` → `QImage` → `QSGImageNode` di `updatePaintNode()`. Ini adalah satu-satunya pipeline stabil untuk separate QRhi architecture di Qt 6.11.
+- **Display**: `FluxItem` (QQuickItem) → own GL context (share dengan SG) + own QRhi. Engine step di `EngineStepJob` (QRunnable) via `QQuickWindow::AfterSwapStage`. Display readback `displayTex` → `QImage` → `QSGImageNode` di `updatePaintNode()`. Ini adalah satu-satunya pipeline stabil untuk separate QRhi architecture di Qt 6.11.
 - **Noise**: CPU-generated hash-based value noise (3 octave fbm), upload RGBA16F setiap frame.
 - **Uniform blocks**: Parameter hardcode di shader karena QSB strips `layout(binding=N)` dari GLSL 440 output,
   dan Qt RHI OpenGL backend tidak rekonstruksi dari SPIR-V reflection.
@@ -155,7 +155,7 @@ advect_fwd (0) → advect_rev (1) → adjust (2) → diffuse×3 (3-5)
   → subtract_gradient (27) → displayTex heatmap
 ```
 
-Timer-driven loop (16ms interval, FluidSimItem → QSGRenderNode.prepare() → engine step).
+Timer-driven loop (16ms interval, FluxItem → QSGRenderNode.prepare() → engine step).
 
 Detail matematika dan parameter default harus didokumentasikan di
 `dev/notes/navier-stokes-ref.md` berdasarkan analisis WGSL di
@@ -199,12 +199,12 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Engine step in QSGRenderNode::prepare() — runs before scene graph main pass
 - [x] Frame readback verification (half-float → float → print at every 5th frame)
 - [x] Verified stable simulation (no blow-up, values evolve every frame)
-- [x] `FluidSimItem` QQuickItem with `FluidSim` QML plugin
-- [x] `FluxBackground.qml` — fullscreen component wrapping FluidSimItem
+- [x] `FluxItem` QQuickItem with `FluxEngine` QML plugin
+- [x] `FluxBackground.qml` — fullscreen component wrapping FluxItem
 - [x] qsb compiler flag: `--glsl "440"` (not `--qt6`) karena butuh texelFetch/textureSize
 - [x] **Fixed index order in QSGGeometryNode display quad**: `{0,1,2, 1,2,3}` (bukan `{0,1,2, 0,2,3}`) untuk `GL_TRIANGLES`. Indeks `{0,2,3}` kedua membuat kedua triangle share LEFT EDGE (v0-v2), overlap di left half, miss right half → coverage 75%. Indeks `{1,2,3}` membuat mereka share diagonal v1-v2, form solid quad → coverage 100%.
 - [x] **100% window coverage verified** via grim capture + ImageMagick quadrant analysis (mean.g 0.9997+ di semua quadrant dengan solid green test shader)
-- [x] **Debug mode system**: 5 mode display (Normal/Fluid/Noise/Pressure/Divergence) dengan `display_debug.frag` (bias decode + contrast 2.0, match referensi). Display texture 256×256 RGBA8. Mode switching via `FluidSimItem.debugMode` property + 5 tombol QML.
+- [x] **Debug mode system**: 5 mode display (Normal/Fluid/Noise/Pressure/Divergence) dengan `display_debug.frag` (bias decode + contrast 2.0, match referensi). Display texture 256×256 RGBA8. Mode switching via `FluxItem.debugMode` property + 5 tombol QML.
 - [x] **Diffuse boundary safety fix**: Added `clampPos()` to `pass_diffuse.frag` to prevent out-of-bounds `texelFetch` reads (matching reference's ClampToEdge sampler → Neumann implicit).
 - [x] **All pipeline shaders verified for boundary safety** via reference WGSL comparison. No-slip only in `subtract_gradient`, NOT in diffuse. Component-wise (`bc.x=0` at x-walls, `bc.y=0` at y-walls) already correct in `pass_subtract.frag`.
 - [x] **QSGTexture::Nearest** filtering on display texture to prevent bilinear blur.
@@ -258,7 +258,7 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **Sandbox pure black background** — `#0d0d1a` → `#000`
 - [x] **QTimer → QML Timer** — `onFrameTick()` pindah ke public slots, C++ QTimer dihapus. FluxBackground, test_fluid, shell.qml pake Timer 16ms di QML.
 - [x] **Opaque black display clear color** — `QColor(0,0,0,0)` → `QColor(0,0,0,255)` di display render pass, mencegah window background tembus.
-- [x] **QSB search path fix** — `FluidSimShaders::shaderPath()` parse `QML2_IMPORT_PATH` env var untuk quickshell compatibility.
+- [x] **QSB search path fix** — `FluxShaders::shaderPath()` parse `QML2_IMPORT_PATH` env var untuk quickshell compatibility.
 
 ### In Progress
 - [ ] Quickshell lockscreen integration — `FluxBackground.qml` → `LockScreen.qml`
@@ -272,7 +272,7 @@ Detail matematika dan parameter default harus didokumentasikan di
 - 2026-06-24: `QSGGeometryNode` dan `QSGSimpleTextureNode` yang dibuat manual dengan `new` TIDAK RENDER di Qt 6.11 RHI mode pada Hyprland/Wayland. Fix: gunakan `window()->createRectangleNode()` atau `window()->createImageNode()` untuk node yang render dengan benar.
 - 2026-06-24: `QQuickWindow::createTextureFromRhiTexture()` tidak bekerja untuk texture dari QRhi yang berbeda (separate context). Fix: readback→QImage→createTextureFromImage pipeline.
 - 2026-06-24: Qt 6.11 cleanup ordering bug: `releaseResources()` dipanggil dari item destructor setelah GL context di-destroy. Tidak fixable dari plugin side. Crash pada app exit saat `QRhi` destructor.
-- 2026-06-25: **QSB loading priority bug**: `FluidSimShaders::loadShader()` searches `applicationDirPath() + "/shaders/"` FIRST. Sandbox app (`dev/shader-sandbox/build/shader_sandbox`) has old QSB copies in its own `build/shaders/` dir that take priority over newly compiled ones in `plugin/build/FluidSim/shaders/`. Fix: sandbox CMake copies from plugin build dir (`../../plugin/build/FluidSim/shaders/`) instead of stale `shaders/compiled/`. **If you change shaders and the app still shows old behavior, check that QSB files in the sandbox build dir are updated.**
+- 2026-06-25: **QSB loading priority bug**: `FluxShaders::loadShader()` searches `applicationDirPath() + "/shaders/"` FIRST. Sandbox app (`dev/shader-sandbox/build/shader_sandbox`) has old QSB copies in its own `build/shaders/` dir that take priority over newly compiled ones in `plugin/build/FluxEngine/shaders/`. Fix: sandbox CMake copies from plugin build dir (`../../plugin/build/FluxEngine/shaders/`) instead of stale `shaders/compiled/`. **If you change shaders and the app still shows old behavior, check that QSB files in the sandbox build dir are updated.**
 - 2026-06-26: **Tiled texture layout required for state texture**: Line state texture must use `{256, texH}` format, NOT `{stateTexels, 1}` (very wide 1-row). `texelFetch` in vertex shader returns zeros when texture width exceeds implementation-dependent threshold on GLES2 backend. Always tile state textures to max width 256.
 - 2026-06-27: **RGBA32F required for state texture** — `m_lineStateTex` format changed from RGBA16F to RGBA32F. `initLineState()` data updated from `qfloat16*` to `float*`. Compute shader `layout(rgba16f)` → `layout(rgba32f)` — **FORMAT MUST MATCH** between C++ and GLSL, otherwise state data silently corrupts.
 
@@ -280,7 +280,7 @@ Detail matematika dan parameter default harus didokumentasikan di
 
 ## Configurable Simulation Parameters
 
-Semua simulation parameter bisa di-set via QML properties pada `FluidSimItem` (di-expose via `FluidSimItem` Q_PROPERTY dan di-bridge ke shader via uniform buffer `FluidUniforms` pada binding=8 atau `GpuNoiseParams` pada binding=0).
+Semua simulation parameter bisa di-set via QML properties pada `FluxItem` (di-expose via `FluxItem` Q_PROPERTY dan di-bridge ke shader via uniform buffer `FluidUniforms` pada binding=8 atau `GpuNoiseParams` pada binding=0).
 
 | QML Property | Type | Default | Range | Shader Binding | Effects |
 |---|---|---|---|---|---|
@@ -298,7 +298,7 @@ Semua simulation parameter bisa di-set via QML properties pada `FluidSimItem` (d
 ### Cara pakai via QML
 
 ```qml
-FluidSimItem {
+FluxItem {
     viscosity: 8.0
     noiseMultiplier: 0.6
     colorMode: 1
@@ -324,11 +324,11 @@ property JsonObject fluid: JsonObject {
 }
 ```
 
-Di `FluxBackground.qml` atau view yang pake `FluidSimItem`:
+Di `FluxBackground.qml` atau view yang pake `FluxItem`:
 ```qml
 import qs.modules.common
 
-FluidSimItem {
+FluxItem {
     colorMode: Config.options.fluid.colorMode
     viscosity: Config.options.fluid.viscosity
     // ... dst
@@ -340,8 +340,8 @@ FluidSimItem {
 ```
 Config.options.fluid.viscosity (JSON file persisted)
   → FluxBackground.qml property binding
-    → FluidSimItem.viscosity (Q_PROPERTY)
-      → FluidSimEngine::setViscosity(8.0)
+    → FluxItem.viscosity (Q_PROPERTY)
+      → FluxEngine::setViscosity(8.0)
         → m_paramsDirty = true
         → step(): updateUniforms() → upload GPU buffer
         → pass_diffuse.frag baca u.uStencilFactor, u.uCenterFactor
@@ -628,7 +628,7 @@ tanpa referensi konkret.
 - **Cleanup crash root cause identified**: Qt 6.11 calls `releaseResources()` from `QQuickItemPrivate::derefWindow()` during item destructor — AFTER the QQuickWindow's GL context is destroyed. Engine's `QRhiGraphicsPipeline` destructor crashes when calling into GL with no context. This is a Qt 6.11 ordering bug, not fixable from our side.
 
 ### Pre-existing issues
-- **Qt 6.11 cleanup crash**: GL context destroyed before `releaseResources()` called on items. Crash at exit in `FluidSimEngine::releaseResources()` → `QRhiGraphicsPipeline::~QRhiGraphicsPipeline()`. Accept as pre-existing Qt bug.
+- **Qt 6.11 cleanup crash**: GL context destroyed before `releaseResources()` called on items. Crash at exit in `FluxEngine::releaseResources()` → `QRhiGraphicsPipeline::~QRhiGraphicsPipeline()`. Accept as pre-existing Qt bug.
 - **grabToImage works**: non-zero pixel images confirmed from sandbox (R mean 34, G mean 32, B mean 45). Occasional crash during grab is from QSGRenderNode state conflict with QSGRhiLayer::grab() in headless.
 
 ### Next
@@ -640,7 +640,7 @@ tanpa referensi konkret.
 ### 2026-06-22 — Session: Simplex Noise CPU 1:1 + Diffuse Formula + Inject Noise 1:1 Reference
 
 **Changes**:
-1. **`FluidSimEngine.cpp`** — Replaced hash-based value noise (fbm) with 3D simplex noise ported 1:1 from WGSL `generate_noise.comp.wgsl`:
+1. **`FluxEngine.cpp`** — Replaced hash-based value noise (fbm) with 3D simplex noise ported 1:1 from WGSL `generate_noise.comp.wgsl`:
    - `snoise3D()` — complete port of simplex noise (mod289 + permute + gradient tables + falloff)
    - `simplexNoisePair()` — returns (snoise(v), snoise(v+vec3(8,-8,0))) matching `make_noise_pair`
    - Channel blending in CPU upload loop: for each channel, `scale * texelPos` → `make_noise_pair(..., offset_1)` → optional blend with offset_2 → sum across 3 channels → `* global_multiplier`
@@ -650,14 +650,14 @@ tanpa referensi konkret.
 
 2. **`pass_diffuse.frag`** — `stencil_factor` 0.25→0.0625, `center_factor` 0→12.0. Calculated from `dt=0.016667, visc=5.0`: `centerFactor=1/(visc*dt)=12.0`, `stencilFactor=1/(4+centerFactor)=0.0625`. Previous values made diffusion 4× too aggressive.
 
-3. **`FluidSimEngine.cpp` (subtract gradient)** — `pressureTex` sampler `nearest→linear`. Linear gradient: `0.25*(p[i+1]-p[i-1])`, nearest: `0.5*(p[i+1]-p[i-1])` (2× over-correction).
+3. **`FluxEngine.cpp` (subtract gradient)** — `pressureTex` sampler `nearest→linear`. Linear gradient: `0.25*(p[i+1]-p[i-1])`, nearest: `0.5*(p[i+1]-p[i-1])` (2× over-correction).
 
 4. **`pass_inject_noise.frag`** — Rewritten to match reference:
    - Linear sampler for noiseTex (was nearest/texelFetch)
    - UV-based sampling: `gl_FragCoord.xy / velSize` (was `texelFetch` position mapping)
    - `timestep * noise` scaling: `(1/60) * noise` (was `1.0 * noise` — 60× too aggressive)
 
-5. **`FluidSimEngine.h`** — `m_noiseMultiplier` default 0.1→0.45
+5. **`FluxEngine.h`** — `m_noiseMultiplier` default 0.1→0.45
 
 **Known Issue**: Intermittent segfault (~10% rate) in `QSGBatchRenderer::Renderer::renderRhiRenderNode` when `shader_sandbox` runs after rebuild. Pre-existing Qt timing issue, not related to noise changes.
 
@@ -692,11 +692,11 @@ tanpa referensi konkret.
 QSGRenderNode hanya untuk engine step (no-op render).
 
 **Changes**:
-1. **`FluidSimItem.h/cpp`** — Refactor `updatePaintNode()` returns `QSGNode` with 2 children:
+1. **`FluxItem.h/cpp`** — Refactor `updatePaintNode()` returns `QSGNode` with 2 children:
    - `QSGRenderNode` (FluidDisplayNode): step engine di `prepare()`, `render()` no-op
    - `QSGSimpleTextureNode`: wrap `displayTex` via `createTextureFromRhiTexture()`
 2. **`FluidDisplayNode`** — Simplified: no pipelines, no draw code, just `prepare()` → engine step
-3. **`FluidSimItem.h`** — Removed all pipeline/buffer/renderpass members from FluidDisplayNode
+3. **`FluxItem.h`** — Removed all pipeline/buffer/renderpass members from FluidDisplayNode
 4. **`AGENTS.md`** — Updated all sections for new architecture
 
 **Verified**: Visual output confirmed via grim analysis (49.8% non-background pixels, heatmap colors visible).
@@ -771,7 +771,7 @@ ivec2 p0 = ivec2(base % texW, base / texW);
    - Top half: `vec4(color.rgb, endpointOpacity)` → endpointOpacity=1.0 (threshold=1, brightness=1)
    - Bottom half: `vec4(color.rgb*(1-color.a), 1)` — premultiplied alpha reverse math
    - Smooth edges: `1.0 - smoothstep(1-fwidth(dist), 1, dist)`
-4. **C++ `tickLineNoise()`** (`FluidSimEngine.cpp`): Matches reference `tick()` — `BASE_OFFSET=0.0015`, `BLEND_THRESHOLD=4.0`, `perturb=1+0.2*sin(0.01*elapsed*TAU)`. Called in `step()` before `stepLines()`.
+4. **C++ `tickLineNoise()`** (`FluxEngine.cpp`): Matches reference `tick()` — `BASE_OFFSET=0.0015`, `BLEND_THRESHOLD=4.0`, `perturb=1+0.2*sin(0.01*elapsed*TAU)`. Called in `step()` before `stepLines()`.
 5. **Stale test shaders removed**: `test_compute.comp`, `test_instancing_*`, `test_solid.comp` (relics from earlier exploration).
 
 ### Verified
@@ -783,7 +783,7 @@ ivec2 p0 = ivec2(base % texW, base / texW);
 ## Session Summary (2026-06-27) — MSAA + RGBA32F + Config Bridge
 
 ### Changes
-1. **MSAA 4x configurable** (`FluidSimEngine.cpp/h`): `createDisplayPass()` creates MSAA render target + resolve texture when `m_msaaSamples > 1`. `msaaSampleCount` Q_PROPERTY (1/2/4, default 4).
+1. **MSAA 4x configurable** (`FluxEngine.cpp/h`): `createDisplayPass()` creates MSAA render target + resolve texture when `m_msaaSamples > 1`. `msaaSampleCount` Q_PROPERTY (1/2/4, default 4).
 2. **`recreateLineGraphicsPipelines()`** extracted from `createLinePipelines()` — called from init and `checkResize()` to keep line graphics pipelines matching current `m_rpDescRGBA8` (MSAA sample count).
 3. **RGBA32F state texture**: `m_lineStateTex` format RGBA16F → RGBA32F. `initLineState()` data `qfloat16*` → `float*`. Compute shader `layout(rgba16f)` → `layout(rgba32f)` — format mismatch between C++ texture and GLSL imageStore was silently corrupting state data.
 4. **AA reverted to 1px**: `smoothstep(0.5 - edgeWidth, 0.5, xOffset)` — matching reference `line.wgsl` exactly (no `2.0*` multiplier).
@@ -818,7 +818,7 @@ ivec2 p0 = ivec2(base % texW, base / texW);
 ## Session Summary (2026-06-27 Late) — Rapihkan + Opaque Black + QML Timer
 
 ### Changes
-1. **FrameAnimation → QML Timer**: FrameAnimation tidak trigger di sandbox/quickshell (butuh animation driver aktif). Ganti dengan `Timer { interval: 16 }` di QML level. `onFrameTick()` pindah dari `private slots` ke `public slots` agar callable dari QML JavaScript. Semua QTimer-related code dihapus dari `FluidSimItem`.
+1. **FrameAnimation → QML Timer**: FrameAnimation tidak trigger di sandbox/quickshell (butuh animation driver aktif). Ganti dengan `Timer { interval: 16 }` di QML level. `onFrameTick()` pindah dari `private slots` ke `public slots` agar callable dari QML JavaScript. Semua QTimer-related code dihapus dari `FluxItem`.
 2. **Opaque black display clear color**: `QColor(0,0,0,0)` → `QColor(0,0,0,255)` di `stepLines()` render pass. Area tanpa garis sekarang opaque black, window background (`#111`) tidak tembus.
 3. **Plugin rebuild**: Opaque black fix perlu rebuild plugin library (`plugin/build/libfluidsimplugin.so`) — sandbox link langsung ke source dan sudah rebuild, tapi quickshell widget load .so dan perlu rebuild terpisah.
 

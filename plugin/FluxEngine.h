@@ -4,11 +4,11 @@
 #include <QtGui/rhi/qrhi.h>
 #include <QtGui/private/qrhi_p.h>
 
-class FluidSimEngine : public QObject {
+class FluxEngine : public QObject {
     Q_OBJECT
 public:
-    explicit FluidSimEngine(QObject *parent = nullptr);
-    ~FluidSimEngine();
+    explicit FluxEngine(QObject *parent = nullptr);
+    ~FluxEngine();
 
     void init(QRhi *rhi, int fluidSize = 128);
     void step(QRhiCommandBuffer *cb, float dt);
@@ -84,7 +84,7 @@ private:
     PassPipeline m_passPressure[2];  // indexed by pi (which pressure to read)
     PassPipeline m_passSubtract[2][2]; // indexed by [vi][pi]
 
-    // Logical window size (from FluidSimItem, for line_scale_factor match reference)
+    // Logical window size (from FluxItem, for line_scale_factor match reference)
     int m_logicalW = 750, m_logicalH = 750;
     int m_desiredLogicalW = 750, m_desiredLogicalH = 750;
     int m_desiredDisplaySize = 512;

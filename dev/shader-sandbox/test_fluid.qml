@@ -1,4 +1,4 @@
-import FluidSim 1.0
+import FluxEngine 1.0
 import QtQuick 2.15
 import QtQuick.Window 2.15
 
@@ -6,12 +6,12 @@ Window {
     id: root
     width: 900; height: 750
     visible: true
-    title: "FluidSim — Debug Visualizer"
+    title: "FluxEngine — Debug Visualizer"
     color: "#000"
 
     readonly property int simSize: 128
 
-    FluidSimItem {
+    FluxItem {
         id: sim
         anchors {
             fill: parent

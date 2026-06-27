@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(FluidSim VERSION 1.0.0 LANGUAGES CXX)
+project(FluxEngine VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -51,23 +51,23 @@ foreach(comp ${COMPUTE_SHADERS})
     )
 endforeach()
 
-qt_add_qml_module(fluidsim
-    URI FluidSim
+qt_add_qml_module(fluxengine
+    URI FluxEngine
     VERSION 1.0
-    OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FluidSim"
+    OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FluxEngine"
     # NO_GENERATE_PLUGIN_SOURCE  -- let cmake auto-generate plugin
     NO_PLUGIN_OPTIONAL
-    CLASS_NAME FluidSimPlugin
+    CLASS_NAME FluxEnginePlugin
     SOURCES
-        FluidSimItem.h
-        FluidSimItem.cpp
-        FluidSimEngine.h
-        FluidSimEngine.cpp
-        FluidSimShaders.h
-        FluidSimShaders.cpp
+        FluxItem.h
+        FluxItem.cpp
+        FluxEngine.h
+        FluxEngine.cpp
+        FluxShaders.h
+        FluxShaders.cpp
 )
 
-set(QSB_DEST ${CMAKE_BINARY_DIR}/FluidSim/shaders)
+set(QSB_DEST ${CMAKE_BINARY_DIR}/FluxEngine/shaders)
 add_custom_command(
     OUTPUT ${QSB_DEST}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${QSB_DEST}
@@ -76,19 +76,19 @@ add_custom_command(
     COMMENT "Copying QSB files to ${QSB_DEST}"
 )
 
-add_custom_target(fluidsim_qsb ALL DEPENDS ${QSB_FILES} ${QSB_DEST})
-add_dependencies(fluidsimplugin fluidsim_qsb)
+add_custom_target(fluxengine_qsb ALL DEPENDS ${QSB_FILES} ${QSB_DEST})
+add_dependencies(fluxengineplugin fluxengine_qsb)
 
 # Qt private headers (QRhi access). Try CMake targets first (works with aqtinstall),
 # fall back to hardcoded paths for system Qt installations (Arch, etc.)
 find_package(Qt6 QUIET COMPONENTS GuiPrivate CorePrivate)
 if(TARGET Qt6::GuiPrivate)
-    foreach(tgt fluidsim fluidsimplugin)
+    foreach(tgt fluxengine fluxengineplugin)
         target_link_libraries(${tgt} PRIVATE Qt6::GuiPrivate Qt6::CorePrivate)
     endforeach()
 else()
     set(QT6_VER "6.11.1")
-    foreach(tgt fluidsim fluidsimplugin)
+    foreach(tgt fluxengine fluxengineplugin)
         target_include_directories(${tgt} SYSTEM PRIVATE
             "/usr/include/qt6/QtGui/${QT6_VER}"
             "/usr/include/qt6/QtGui/${QT6_VER}/QtGui"
@@ -98,5 +98,5 @@ else()
     endforeach()
 endif()
 
-target_link_libraries(fluidsim PRIVATE Qt6::Quick Qt6::Qml Qt6::Gui Qt6::ShaderTools)
-target_link_libraries(fluidsimplugin PRIVATE Qt6::Quick Qt6::Qml Qt6::Gui Qt6::ShaderTools)
+target_link_libraries(fluxengine PRIVATE Qt6::Quick Qt6::Qml Qt6::Gui Qt6::ShaderTools)
+target_link_libraries(fluxengineplugin PRIVATE Qt6::Quick Qt6::Qml Qt6::Gui Qt6::ShaderTools)

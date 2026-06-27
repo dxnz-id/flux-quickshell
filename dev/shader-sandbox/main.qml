@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Window
-import FluidSim 1.0
+import FluxEngine 1.0
 
 Window {
     id: root

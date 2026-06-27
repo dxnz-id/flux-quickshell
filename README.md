@@ -6,7 +6,7 @@ Quickshell QML component dengan C++ QRhi rendering plugin.
 
 ## Arsitektur
 
-**C++ QRhi plugin** (`FluidSim` QML namespace) — BUKAN QML `ShaderEffect` chain.
+**C++ QRhi plugin** (`FluxEngine` QML namespace) — BUKAN QML `ShaderEffect` chain.
 Navier-Stokes solver dijalankan sebagai multi-pass GPU pipeline via Qt RHI:
 
 - 28 phases per frame (MacCormack advection → Jacobi diffusion ×3 →
@@ -24,7 +24,7 @@ Navier-Stokes solver dijalankan sebagai multi-pass GPU pipeline via Qt RHI:
 - Jacobi diffusion (3 iterasi) dan Jacobi pressure (19 iterasi)
 - 3D simplex noise CPU dengan channel blending + scale oscillation — 1:1 reference
 - 5 debug modes: Normal (heatmap), Noise, Fluid (raw velocity), Pressure, Divergence
-- `FluidSimItem` QQuickItem + `FluidSim` QML plugin
+- `FluxItem` QQuickItem + `FluxEngine` QML plugin
 - `FluxBackground.qml` fullscreen component
 
 ### Dalam Progress
@@ -44,14 +44,14 @@ cd plugin && cmake -Bbuild && cmake --build build -j8
 # Shader compilation via cmake (qsb --glsl "440")
 ```
 
-Gunakan `QML_IMPORT_PATH=plugin/build` untuk mengimpor modul `FluidSim 1.0`.
+Gunakan `QML_IMPORT_PATH=plugin/build` untuk mengimpor modul `FluxEngine 1.0`.
 
 ## Penggunaan QML
 
 ```qml
-import FluidSim 1.0
+import FluxEngine 1.0
 
-FluidSimItem {
+FluxItem {
     anchors.fill: parent
     simSize: 128
     running: true

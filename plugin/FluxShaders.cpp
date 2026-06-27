@@ -1,4 +1,4 @@
-#include "FluidSimShaders.h"
+#include "FluxShaders.h"
 #include <QFile>
 #include <QCoreApplication>
 #include <QDir>
@@ -13,7 +13,7 @@ static QStringList qmlImportPaths()
     return paths;
 }
 
-QShader FluidSimShaders::loadShader(const QString &name)
+QShader FluxShaders::loadShader(const QString &name)
 {
     QString path = shaderPath(name);
     QFile f(path);
@@ -34,25 +34,25 @@ QShader FluidSimShaders::loadShader(const QString &name)
     return QShader();
 }
 
-QString FluidSimShaders::shaderPath(const QString &name)
+QString FluxShaders::shaderPath(const QString &name)
 {
     // Search paths ordered by likelihood
     QStringList searchPaths = {
         // Relative to app dir (qml6 tool)
         QCoreApplication::applicationDirPath() + "/shaders/",
         QCoreApplication::applicationDirPath() + "/../shaders/",
-        QCoreApplication::applicationDirPath() + "/qml/FluidSim/shaders/",
+        QCoreApplication::applicationDirPath() + "/qml/FluxEngine/shaders/",
         // Relative to current dir
         "shaders/",
-        "FluidSim/shaders/",
+        "FluxEngine/shaders/",
         // Relative to QML2_IMPORT_PATH / plugin deployment dir
-        QDir::homePath() + "/.local/lib/qml/FluidSim/shaders/",
+        QDir::homePath() + "/.local/lib/qml/FluxEngine/shaders/",
         // Resource path (for embedded Qt resources)
         ":/shaders/",
     };
     // Add paths from QML2_IMPORT_PATH env var
     for (const QString &ip : qmlImportPaths())
-        searchPaths.prepend(ip + "/FluidSim/shaders/");
+        searchPaths.prepend(ip + "/FluxEngine/shaders/");
     for (const QString &base : searchPaths) {
         QString path = base + name + ".qsb";
         if (QFile::exists(path))

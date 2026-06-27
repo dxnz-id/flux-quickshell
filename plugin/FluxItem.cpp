@@ -1,25 +1,25 @@
-// Copyright 2025 — FluidSim: C++ QRhi fluid simulation QML plugin
+// Copyright 2025 — FluxEngine: C++ QRhi fluid simulation QML plugin
 
-#include "FluidSimItem.h"
-#include "FluidSimEngine.h"
+#include "FluxItem.h"
+#include "FluxEngine.h"
 #include <QSGImageNode>
 #include <QSGTexture>
 #include <QQuickWindow>
 
 
-// ---- FluidSimItem ----
+// ---- FluxItem ----
 
-FluidSimItem::FluidSimItem(QQuickItem *parent)
+FluxItem::FluxItem(QQuickItem *parent)
     : QQuickItem(parent)
 {
     setFlag(ItemHasContents, true);
 }
 
-FluidSimItem::~FluidSimItem()
+FluxItem::~FluxItem()
 {
 }
 
-void FluidSimItem::setRunning(bool r)
+void FluxItem::setRunning(bool r)
 {
     if (m_running == r)
         return;
@@ -34,7 +34,7 @@ void FluidSimItem::setRunning(bool r)
     emit runningChanged();
 }
 
-void FluidSimItem::setSimSize(int s)
+void FluxItem::setSimSize(int s)
 {
     if (m_simSize == s)
         return;
@@ -42,7 +42,7 @@ void FluidSimItem::setSimSize(int s)
     emit simSizeChanged();
 }
 
-void FluidSimItem::setDebugMode(int mode)
+void FluxItem::setDebugMode(int mode)
 {
     if (m_debugMode == mode)
         return;
@@ -53,7 +53,7 @@ void FluidSimItem::setDebugMode(int mode)
     update();
 }
 
-void FluidSimItem::setColorMode(int v)
+void FluxItem::setColorMode(int v)
 {
     if (m_colorMode == v) return;
     m_colorMode = v;
@@ -61,7 +61,7 @@ void FluidSimItem::setColorMode(int v)
     emit colorModeChanged();
 }
 
-void FluidSimItem::setViscosity(float v)
+void FluxItem::setViscosity(float v)
 {
     if (m_viscosity == v) return;
     m_viscosity = v;
@@ -69,7 +69,7 @@ void FluidSimItem::setViscosity(float v)
     emit viscosityChanged();
 }
 
-void FluidSimItem::setNoiseMultiplier(float v)
+void FluxItem::setNoiseMultiplier(float v)
 {
     if (m_noiseMultiplier == v) return;
     m_noiseMultiplier = v;
@@ -77,7 +77,7 @@ void FluidSimItem::setNoiseMultiplier(float v)
     emit noiseMultiplierChanged();
 }
 
-void FluidSimItem::setTimestep(float v)
+void FluxItem::setTimestep(float v)
 {
     if (m_timestep == v) return;
     m_timestep = v;
@@ -85,7 +85,7 @@ void FluidSimItem::setTimestep(float v)
     emit timestepChanged();
 }
 
-void FluidSimItem::setDissipation(float v)
+void FluxItem::setDissipation(float v)
 {
     if (m_dissipation == v) return;
     m_dissipation = v;
@@ -93,7 +93,7 @@ void FluidSimItem::setDissipation(float v)
     emit dissipationChanged();
 }
 
-void FluidSimItem::setPressureIterations(int v)
+void FluxItem::setPressureIterations(int v)
 {
     if (m_pressureIterations == v) return;
     m_pressureIterations = v;
@@ -101,7 +101,7 @@ void FluidSimItem::setPressureIterations(int v)
     emit pressureIterationsChanged();
 }
 
-void FluidSimItem::setLineVariance(float v)
+void FluxItem::setLineVariance(float v)
 {
     if (m_lineVariance == v) return;
     m_lineVariance = v;
@@ -109,7 +109,7 @@ void FluidSimItem::setLineVariance(float v)
     emit lineVarianceChanged();
 }
 
-void FluidSimItem::setLineWidthMultiplier(float v)
+void FluxItem::setLineWidthMultiplier(float v)
 {
     if (m_lineWidthMultiplier == v) return;
     m_lineWidthMultiplier = v;
@@ -117,7 +117,7 @@ void FluidSimItem::setLineWidthMultiplier(float v)
     emit lineWidthMultiplierChanged();
 }
 
-void FluidSimItem::setZoom(float v)
+void FluxItem::setZoom(float v)
 {
     if (m_zoom == v) return;
     m_zoom = v;
@@ -125,7 +125,7 @@ void FluidSimItem::setZoom(float v)
     emit zoomChanged();
 }
 
-void FluidSimItem::setMsaaSampleCount(int v)
+void FluxItem::setMsaaSampleCount(int v)
 {
     if (m_msaaSamples == v) return;
     if (v != 1 && v != 2 && v != 4) return;
@@ -134,7 +134,7 @@ void FluidSimItem::setMsaaSampleCount(int v)
     emit msaaSampleCountChanged();
 }
 
-void FluidSimItem::initOurRhi()
+void FluxItem::initOurRhi()
 {
     if (m_ourRhi)
         return;
@@ -183,7 +183,7 @@ void FluidSimItem::initOurRhi()
     m_sharedCtx->doneCurrent();
 }
 
-void FluidSimItem::onFrameTick()
+void FluxItem::onFrameTick()
 {
     if (!window() || !m_running)
         return;
@@ -207,7 +207,7 @@ void FluidSimItem::onFrameTick()
     emit frameCountChanged(m_frameCount);
 }
 
-void FluidSimItem::scheduleEngineStep()
+void FluxItem::scheduleEngineStep()
 {
     if (!m_ourRhi || !m_engine || !m_engine->isInitialized() || !m_sharedCtx)
         return;
@@ -218,7 +218,7 @@ void FluidSimItem::scheduleEngineStep()
     window()->scheduleRenderJob(job, QQuickWindow::AfterSwapStage);
 }
 
-QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
+QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
     if (!window())
         return nullptr;
@@ -226,7 +226,7 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     initOurRhi();
 
     if (!m_engine && m_ourRhi) {
-        m_engine = std::make_unique<FluidSimEngine>();
+        m_engine = std::make_unique<FluxEngine>();
         m_engine->init(m_ourRhi.get(), m_simSize);
         m_engine->setDebugMode(m_debugMode);
         m_engine->setColorMode(m_colorMode);
@@ -283,7 +283,7 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     return imageNode;
 }
 
-void FluidSimItem::releaseResources()
+void FluxItem::releaseResources()
 {
     m_engine.reset();
     m_ourRhi.reset();
@@ -292,27 +292,27 @@ void FluidSimItem::releaseResources()
     m_sharedCtx = nullptr;
 }
 
-void FluidSimItem::itemChange(ItemChange, const ItemChangeData &)
+void FluxItem::itemChange(ItemChange, const ItemChangeData &)
 {
 }
 
-void FluidSimItem::storeReadback(const QByteArray &data)
+void FluxItem::storeReadback(const QByteArray &data)
 {
     QMutexLocker lock(&m_readbackMutex);
     m_readbackData = data;
 }
 
-bool FluidSimItem::hasPendingReadback() const
+bool FluxItem::hasPendingReadback() const
 {
     return m_readbackPending;
 }
 
-void FluidSimItem::setReadbackPending(bool p)
+void FluxItem::setReadbackPending(bool p)
 {
     m_readbackPending = p;
 }
 
-int FluidSimItem::computeDisplaySize(int w, int h)
+int FluxItem::computeDisplaySize(int w, int h)
 {
     return std::min(w, h);
 }

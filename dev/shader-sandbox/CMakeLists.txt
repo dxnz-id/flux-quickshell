@@ -16,4 +16,4 @@ file(COPY ${CMAKE_SOURCE_DIR}/test_fluid.qml DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${CMAKE_SOURCE_DIR}/../../qml/ DESTINATION ${CMAKE_BINARY_DIR}
      PATTERN "shaders" EXCLUDE)
 # Copy compiled shaders into build/shaders/ (from plugin build output)
-file(COPY ${CMAKE_SOURCE_DIR}/../../plugin/build/FluidSim/shaders/ DESTINATION ${CMAKE_BINARY_DIR}/shaders)
+file(COPY ${CMAKE_SOURCE_DIR}/../../plugin/build/FluxEngine/shaders/ DESTINATION ${CMAKE_BINARY_DIR}/shaders)
