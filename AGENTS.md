@@ -24,11 +24,10 @@ BUKAN QML ShaderEffect chain. Ini perubahan arsitektur fundamental.
 - Pipeline tidak lagi dibatasi format `ShaderEffectSource` (RGBA8 clamp).
 - Internal textures: `RGBA16F` (velocity, advection, noise) dan `R32F` (pressure, divergence).
 
-### Yang Lama (referensi historis di `qml/FluxSimulation.qml`)
+### Yang Lama (dianggap histori)
 
 `ShaderEffect` + `ShaderEffectSource` multi-pass chain. Ditinggalkan karena limitasi
 1 sampler per ShaderEffect membuat MacCormack advection tidak bisa diimplementasikan.
-Disimpan sebagai referensi, tidak digunakan di pipeline final.
 
 ---
 
@@ -65,10 +64,9 @@ flux-quickshell/
 ├── AGENTS.md
 ├── README.md
 ├── .gitignore
-├── shaders/
-│   ├── src/              ← GLSL source (.frag), DI-TRACK GIT
-│   └── compiled/          ← hasil qsb (.qsb), DI-TRACK GIT
 ├── qml/                    ← komponen QML (FluxBackground.qml, dll), DI-TRACK GIT
+├── plugin/
+│   └── shaders/            ← C++ pipeline shader source (.frag/.vert/.comp), DI-TRACK GIT
 └── dev/
     ├── shader-sandbox/     ← standalone Qt app untuk test shader
     │   └── build/          ← GITIGNORED, regenerable via cmake
