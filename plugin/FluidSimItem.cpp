@@ -234,12 +234,7 @@ void FluidSimItem::setReadbackPending(bool p)
 
 int FluidSimItem::computeDisplaySize(int w, int h)
 {
-    int base = std::min(w, h);
-    int ds = int(float(base) / 750.0f * 512.0f);
-    ds = ((ds + 7) / 15) * 15;  // round to nearest 15
-    if (ds < 256) ds = 256;
-    if (ds > 1024) ds = 1024;
-    return ds;
+    return std::min(w, h);
 }
 
 // ---- EngineStepJob ----
