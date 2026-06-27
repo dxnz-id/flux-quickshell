@@ -3,7 +3,7 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(binding = 0) uniform sampler2D uVelTex;
 layout(binding = 1) uniform sampler2D uStateTex;
-layout(binding = 2, rgba16f) writeonly uniform image2D uOutImg;
+layout(binding = 2, rgba32f) writeonly uniform image2D uOutImg;
 layout(binding = 3, std140) uniform LineUniforms {
     float uAspect;
     float uZoom;

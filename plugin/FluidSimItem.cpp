@@ -136,6 +136,15 @@ void FluidSimItem::setZoom(float v)
     emit zoomChanged();
 }
 
+void FluidSimItem::setMsaaSampleCount(int v)
+{
+    if (m_msaaSamples == v) return;
+    if (v != 1 && v != 2 && v != 4) return;
+    m_msaaSamples = v;
+    if (m_engine) m_engine->setMsaaSamples(v);
+    emit msaaSampleCountChanged();
+}
+
 void FluidSimItem::initOurRhi()
 {
     if (m_ourRhi)
@@ -240,6 +249,7 @@ QSGNode *FluidSimItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_engine->setLineVariance(m_lineVariance);
         m_engine->setLineWidthMultiplier(m_lineWidthMultiplier);
         m_engine->setZoom(m_zoom);
+        m_engine->setMsaaSamples(m_msaaSamples);
     }
 
     auto *imageNode = static_cast<QSGImageNode *>(oldNode);

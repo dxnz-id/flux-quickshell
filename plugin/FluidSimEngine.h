@@ -21,6 +21,8 @@ public:
 
     QRhiTexture *displayTex() const { return m_displayTex.get(); }
     int displaySize() const { return m_displaySize; }
+    void setMsaaSamples(int s) { if (m_msaaSamples != s) { m_msaaSamples = s; m_resizeNeeded = true; } }
+    int msaaSamples() const { return m_msaaSamples; }
     QRhiSampler *nearestSampler() const { return m_nearestSampler.get(); }
     QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
@@ -54,6 +56,7 @@ private:
     void updateUniforms();  // upload FluidUniforms + Direction + PushConstants to GPU
     void testComputeAndSSBO();
     void createLinePipelines();
+    void recreateLineGraphicsPipelines();
     void stepLines(QRhiCommandBuffer *cb);
     void initLineState();
     void initBasepoints();
@@ -90,9 +93,11 @@ private:
 
     // Display textures (512x512 RGBA8 by default)
     int m_displaySize = 512;
-    std::unique_ptr<QRhiTexture> m_displayTex;
+    std::unique_ptr<QRhiTexture> m_displayTex;       // resolve target (MSAA) or direct RT (no MSAA)
+    std::unique_ptr<QRhiTexture> m_displayTexMS;     // MSAA render target (null when msaaSamples==1)
     std::unique_ptr<QRhiTextureRenderTarget> m_displayRT;
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA8;
+    int m_msaaSamples = 4;
     PassPipeline m_passDisplay;      // heatmap (velocity → color)
     PassPipeline m_passDebug;        // bias+contrast (raw texture)
 
@@ -100,7 +105,7 @@ private:
     int m_lineGridCols = 0;
     int m_lineGridRows = 0;
     int m_lineCount = 0;
-    std::unique_ptr<QRhiTexture> m_lineStateTex[2];  // RGBA16F ping-pong (lineCount*3, 1)
+    std::unique_ptr<QRhiTexture> m_lineStateTex[2];  // RGBA32F ping-pong (lineCount*3 texels, tiled 256×H)
     std::unique_ptr<QRhiBuffer> m_lineVertexBuf;      // 6 vec2 quad vertices (LINE_VERTICES)
     std::unique_ptr<QRhiBuffer> m_lineBasepointBuf;   // vec2[lineCount] PerInstance
     std::unique_ptr<QRhiComputePipeline> m_lineUpdatePipeline;
