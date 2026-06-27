@@ -1179,7 +1179,7 @@ void FluidSimEngine::stepLines(QRhiCommandBuffer *cb)
     m_lineStateReadIdx = writeIdx;
 
     // 2. Render pass: draw instanced lines + endpoints on black
-    cb->beginPass(m_displayRT.get(), QColor(0, 0, 0, 0), QRhiDepthStencilClearValue{1.0f, 0});
+    cb->beginPass(m_displayRT.get(), QColor(0, 0, 0, 255), QRhiDepthStencilClearValue{1.0f, 0});
     cb->setViewport(QRhiViewport(0, 0, float(ds), float(ds)));
 
     // 2a. Draw lines
