@@ -252,10 +252,13 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Phase 7: Endpoint rendering — `draw_endpoint_vs.vert` + `draw_endpoint_fs.frag` matching reference endpoint.wgsl (top/bottom premultiplied alpha + side detection + smoothEdges)
 
 ### Selesai
-- [x] **Configurable simulation parameters via QML** — 9 parameters exposed via Q_PROPERTY (colorMode, viscosity, noiseMultiplier, timestep, dissipation, pressureIterations, lineVariance, lineWidthMultiplier, zoom). `m_fluidUniformBuf` revived and bound at `binding=8` to all solver shaders. `GpuNoiseParams.noiseMultiplier` replaces hardcoded NOISE_MULT.
+- [x] **Configurable simulation parameters via QML** — 10 parameters exposed via Q_PROPERTY (colorMode, viscosity, noiseMultiplier, timestep, dissipation, pressureIterations, lineVariance, lineWidthMultiplier, zoom, msaaSampleCount). `m_fluidUniformBuf` revived and bound at `binding=8` to all solver shaders. `GpuNoiseParams.noiseMultiplier` replaces hardcoded NOISE_MULT.
+- [x] **MSAA 4x configurable** — `msaaSampleCount` Q_PROPERTY (1/2/4, default 4). `createDisplayPass()` creates MSAA + resolve textures. `recreateLineGraphicsPipelines()` ensures pipelines match current MSAA sample count.
+- [x] **RGBA32F state texture** — `m_lineStateTex` format RGBA16F → RGBA32F. Compute shader `layout(rgba32f)` must match C++ `QRhiTexture::RGBA32F` — mismatch silently corrupts state data.
+- [x] **Config.qml bridge** — `fluid {}` section added to dots-hyprfork Config.qml with all 10 parameters.
 
 ### In Progress
-- [ ] Quickshell integration — test on dots-hyprfork lockscreen
+- [ ] Quickshell lockscreen integration — `FluxBackground.qml` → `LockScreen.qml`
 
 ### Belum Dimulai
 - [ ] Integrasi ke dots-hyprfork lockscreen (`LockScreen.qml` + `GlobalStates`)
@@ -283,6 +286,10 @@ Detail matematika dan parameter default harus didokumentasikan di
 - 2026-06-24: `QQuickWindow::update()` di threaded mode tidak trigger sync → `updatePaintNode()` tidak dipanggil. Fix: panggil `QQuickItem::update()` yang mark item dirty, forcing sync + `updatePaintNode()` setiap frame.
 - 2026-06-25: **QSB loading priority bug**: `FluidSimShaders::loadShader()` searches `applicationDirPath() + "/shaders/"` FIRST. Sandbox app (`dev/shader-sandbox/build/shader_sandbox`) has old QSB copies in its own `build/shaders/` dir that take priority over newly compiled ones in `plugin/build/FluidSim/shaders/`. Fix: sandbox CMake copies from plugin build dir (`../../plugin/build/FluidSim/shaders/`) instead of stale `shaders/compiled/`. **If you change shaders and the app still shows old behavior, check that QSB files in the sandbox build dir are updated.**
 - 2026-06-26: **Tiled texture layout required for state texture**: Line state texture must use `{256, texH}` format, NOT `{stateTexels, 1}` (very wide 1-row). `texelFetch` in vertex shader returns zeros when texture width exceeds implementation-dependent threshold on GLES2 backend. Always tile state textures to max width 256.
+- 2026-06-27: **MSAA 4x default** — configurable via `msaaSampleCount` Q_PROPERTY (1/2/4), default 4. Line graphics pipelines must be recreated when `m_rpDescRGBA8` changes (MSAA sample count). Extracted `recreateLineGraphicsPipelines()` called from init and `checkResize()`.
+- 2026-06-27: **RGBA32F required for state texture** — `m_lineStateTex` format changed from RGBA16F to RGBA32F. `initLineState()` data updated from `qfloat16*` to `float*`. Compute shader `layout(rgba16f)` → `layout(rgba32f)` — **FORMAT MUST MATCH** between C++ and GLSL, otherwise state data silently corrupts.
+- 2026-06-27: **Test shaders** (`test_compute.comp`, `adjust_advection.comp`, etc.) are stale — CMake compiles ALL `.comp` files in `shaders/`, remove unused ones.
+- 2026-06-27: `testComputeAndSSBO()` is dead code — removed. Compute pipeline validated by `line_update.comp` which is actively used.
 
 ---
 
@@ -301,6 +308,7 @@ Semua simulation parameter bisa di-set via QML properties pada `FluidSimItem` (d
 | `lineVariance` | float | 0.55 | 0.0-2.0 | `LineUniforms.line_variance` | Seberapa wiggly garis flow |
 | `lineWidthMultiplier` | float | 1.0 | 0.1-5.0 | `LineUniforms.line_width` | Scale ketebalan garis |
 | `zoom` | float | 1.6 | 0.5-5.0 | `LineUniforms.zoom` | Zoom level tampilan |
+| `msaaSampleCount` | int | 4 | 1,2,4 | C++ `m_rpDescRGBA8` | MSAA sample count untuk line rendering |
 
 ### Cara pakai via QML
 
@@ -327,6 +335,7 @@ property JsonObject fluid: JsonObject {
     property real lineVariance: 0.55
     property real lineWidthMultiplier: 1.0
     property real zoom: 1.6
+    property int msaaSampleCount: 4
 }
 ```
 
@@ -785,3 +794,22 @@ ivec2 p0 = ivec2(base % texW, base / texW);
 - All pipelines (compute + line draw + endpoint draw) execute successfully every frame
 - Color texture (256×1 RGBA8) renders rainbow gradient for ImageTexture mode
 - Endpoint draw call uses same vertex + basepoint buffers as lines
+
+## Session Summary (2026-06-27) — MSAA + RGBA32F + Config Bridge
+
+### Changes
+1. **MSAA 4x configurable** (`FluidSimEngine.cpp/h`): `createDisplayPass()` creates MSAA render target + resolve texture when `m_msaaSamples > 1`. `msaaSampleCount` Q_PROPERTY (1/2/4, default 4).
+2. **`recreateLineGraphicsPipelines()`** extracted from `createLinePipelines()` — called from init and `checkResize()` to keep line graphics pipelines matching current `m_rpDescRGBA8` (MSAA sample count).
+3. **RGBA32F state texture**: `m_lineStateTex` format RGBA16F → RGBA32F. `initLineState()` data `qfloat16*` → `float*`. Compute shader `layout(rgba16f)` → `layout(rgba32f)` — format mismatch between C++ texture and GLSL imageStore was silently corrupting state data.
+4. **AA reverted to 1px**: `smoothstep(0.5 - edgeWidth, 0.5, xOffset)` — matching reference `line.wgsl` exactly (no `2.0*` multiplier).
+5. **Config.qml bridge**: Added `fluid {}` section to `dots-hyprfork/dots/.config/quickshell/ii/modules/common/Config.qml` with all 10 parameters.
+6. **Cleanup**: Removed 8 stale `.comp` compute shaders (experimental implementations superseded by fragment-based solver pipeline). Removed dead `testComputeAndSSBO()` function (shader already gone, function never called).
+
+### Resolved Issues
+- **RGBA32F/GLSL format mismatch** (critical): compute shader `layout(rgba16f)` with RGBA32F C++ texture → half-float writes with full-float reads scrambled data — all previous MSAA + AA tests were reading corrupted state, explaining "ga ngefek" user reports.
+- **2px AA overkill**: reference uses `fwidth` without multiplier; our `2.0*fwidth` made edges unnecessarily blurry.
+
+### Visual Quality
+- User confirmed "jauh lebih halus" after RGBA32F fix + MSAA 4x + 1px AA.
+- RGBA32F format mismatch was the root cause of all previous roughness.
+- Line quality now matches reference at equivalent resolution.

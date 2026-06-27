@@ -54,7 +54,6 @@ private:
     void createRenderTargets();
     void initNoiseChannels();
     void updateUniforms();  // upload FluidUniforms + Direction + PushConstants to GPU
-    void testComputeAndSSBO();
     void createLinePipelines();
     void recreateLineGraphicsPipelines();
     void stepLines(QRhiCommandBuffer *cb);
