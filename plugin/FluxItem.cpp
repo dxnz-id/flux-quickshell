@@ -358,7 +358,7 @@ void EngineStepJob::run()
                 memcpy(outData->data(), result->data.constData(), px);
                 item->storeReadback(*outData);
             } else {
-                fprintf(stderr, "  STUCK: readback data too small at frame %d (%d < %d)\n", frame, result->data.size(), px);
+                fprintf(stderr, "  STUCK: readback data too small at frame %d (%lld < %d)\n", frame, (long long)result->data.size(), px);
             }
             item->setReadbackPending(false);
             delete outData;
