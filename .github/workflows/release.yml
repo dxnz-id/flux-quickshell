@@ -45,13 +45,13 @@ jobs:
         run: |
           TAG=${GITHUB_REF_NAME}
           PKG="FluxEngine-${TAG}-linux-x86_64"
-          mkdir -p dist/${PKG}/FluxEngine
-          cp -r build/FluxEngine/libfluxengineplugin.so dist/${PKG}/FluxEngine/
-          cp -r build/FluxEngine/qmldir dist/${PKG}/FluxEngine/
-          cp -r build/FluxEngine/fluxengine.qmltypes dist/${PKG}/FluxEngine/
-          cp -r build/FluxEngine/shaders dist/${PKG}/FluxEngine/
+          mkdir -p dist/FluxEngine
+          cp -r build/FluxEngine/libfluxengineplugin.so dist/FluxEngine/
+          cp -r build/FluxEngine/qmldir dist/FluxEngine/
+          cp -r build/FluxEngine/fluxengine.qmltypes dist/FluxEngine/
+          cp -r build/FluxEngine/shaders dist/FluxEngine/
           cd dist
-          tar czf ../${PKG}.tar.gz ${PKG}/
+          tar czf ../${PKG}.tar.gz FluxEngine/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
