@@ -276,13 +276,12 @@ QRhiShaderResourceBindings *FluxEngine::buildBinding(
     return srb.release();
 }
 
-void FluxEngine::updateUniforms(float realDt)
+void FluxEngine::updateUniforms()
 {
-    float effectiveDt = m_fluidTimestep * (realDt * 60.0f);
-    if (effectiveDt > 0.1f) effectiveDt = 0.1f;
-    float centerFactor = 1.0f / (m_viscosity * effectiveDt);
+    float dt = m_fluidTimestep;
+    float centerFactor = 1.0f / (m_viscosity * dt);
     float stencilFactor = 1.0f / (4.0f + centerFactor);
-    FluidUniforms fu = { effectiveDt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor, m_noiseMultiplier, 0.0f };
+    FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor, m_noiseMultiplier, 0.0f };
 
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_fluidUniformBuf.get(), QByteArray((const char*)&fu, sizeof(fu)));
@@ -547,17 +546,19 @@ void FluxEngine::step(QRhiCommandBuffer *cb, float dt)
 {
     if (!m_initialized) return;
 
-    // Upload uniforms with frame-accurate timestep
-    updateUniforms(dt);
-
-    // Collect all pending uploads to process at first beginPass
-    for (auto *batch : {m_pendingUploadBatch, m_pendingQuadUploadBatch}) {
-        if (batch) {
-            cb->resourceUpdate(batch);
-        }
+    // Upload uniforms only when parameters change (constant m_fluidTimestep)
+    if (m_paramsDirty) {
+        updateUniforms();
+        m_paramsDirty = false;
     }
-    m_pendingUploadBatch = nullptr;
-    m_pendingQuadUploadBatch = nullptr;
+    if (m_pendingUploadBatch) {
+        cb->resourceUpdate(m_pendingUploadBatch);
+        m_pendingUploadBatch = nullptr;
+    }
+    if (m_pendingQuadUploadBatch) {
+        cb->resourceUpdate(m_pendingQuadUploadBatch);
+        m_pendingQuadUploadBatch = nullptr;
+    }
 
     int s = m_fluidSize;
     int pressureStart = 9;
@@ -652,8 +653,8 @@ void FluxEngine::step(QRhiCommandBuffer *cb, float dt)
 
         // Run line update compute + render when mode is 5
         if (m_debugMode == 5) {
-            tickLineNoise(dt);
-            stepLines(cb, dt);
+            tickLineNoise(m_fluidTimestep);
+            stepLines(cb);
         }
 
         // Select display pipeline + binding based on debug mode
@@ -1110,13 +1111,12 @@ void FluxEngine::checkResize()
     m_resizeNeeded = false;
 }
 
-void FluxEngine::stepLines(QRhiCommandBuffer *cb, float realDt)
+void FluxEngine::stepLines(QRhiCommandBuffer *cb)
 {
     if (!m_lineUpdatePipeline || !m_linePipelineReady)
         return;
 
-    float effectiveDt = m_fluidTimestep * (realDt * 60.0f);
-    if (effectiveDt > 0.1f) effectiveDt = 0.1f;
+    float dt = m_fluidTimestep;
 
     int writeIdx = 1 - m_lineStateReadIdx;
     int lineCount = m_lineCount;
@@ -1135,7 +1135,7 @@ void FluxEngine::stepLines(QRhiCommandBuffer *cb, float realDt)
     lu.line_length = m_zoom * m_lineWidthMultiplier * 450.0f * scaleFactor;
     lu.line_begin_offset = 0.4f;
     lu.line_variance = m_lineVariance;
-    lu.delta_time = effectiveDt;
+    lu.delta_time = dt;
     float fcols = float(m_lineGridCols - 1);
     float frows = float(m_lineGridRows - 1);
     lu.grid_cols = fcols;
