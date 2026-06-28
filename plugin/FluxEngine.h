@@ -53,10 +53,10 @@ private:
     void createDisplayPass();
     void createRenderTargets();
     void initNoiseChannels();
-    void updateUniforms();  // upload FluidUniforms + Direction + PushConstants to GPU
+    void updateUniforms(float realDt);  // upload FluidUniforms + Direction + PushConstants to GPU
     void createLinePipelines();
     void recreateLineGraphicsPipelines();
-    void stepLines(QRhiCommandBuffer *cb);
+    void stepLines(QRhiCommandBuffer *cb, float realDt);
     void initLineState();
     void initBasepoints();
     void updateNoiseChannels(float dt);
