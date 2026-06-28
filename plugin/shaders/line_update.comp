@@ -133,8 +133,9 @@ void main() {
     float momentumBoost = mix(3.0, 5.0, variance);
 
     // Sub-step spring integration for FPS-independent motion
-    int springSteps = max(1, int(uDeltaTime * 30.0 + 0.5));
-    springSteps = min(springSteps, 4);
+    // subDt always ≈ 1/60 to match original design point
+    int springSteps = max(1, int(uDeltaTime * 60.0 + 0.5));
+    springSteps = min(springSteps, 8);
     float subDt = uDeltaTime / float(springSteps);
     vec2 subPos = endpoint;
     vec2 subVel = velocity;
