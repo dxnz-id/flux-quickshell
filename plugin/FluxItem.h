@@ -12,6 +12,7 @@
 #include <QMutex>
 #include <QOpenGLFunctions>
 #include <memory>
+#include <atomic>
 
 class FluxEngine;
 class FluxItem;
@@ -89,6 +90,8 @@ public:
     void storeReadback(const QByteArray &data);
     bool hasPendingReadback() const;
     void setReadbackPending(bool p);
+    void decrementInflight() { m_inflightJobs.fetch_sub(1, std::memory_order_release); }
+    bool isStopping() const { return m_stopping.load(std::memory_order_acquire); }
 
 signals:
     void runningChanged();
@@ -152,4 +155,7 @@ private:
 
     // Resize tracking
     int m_lastItemW = 0, m_lastItemH = 0;
+
+    std::atomic<int> m_inflightJobs{0};
+    std::atomic<bool> m_stopping{false};
 };

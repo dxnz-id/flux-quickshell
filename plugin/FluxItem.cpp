@@ -5,6 +5,7 @@
 #include <QSGImageNode>
 #include <QSGTexture>
 #include <QQuickWindow>
+#include <QScopeGuard>
 
 
 // ---- FluxItem ----
@@ -211,7 +212,10 @@ void FluxItem::scheduleEngineStep()
 {
     if (!m_ourRhi || !m_engine || !m_engine->isInitialized() || !m_sharedCtx)
         return;
+    if (m_stopping.load(std::memory_order_acquire))
+        return;
 
+    m_inflightJobs.fetch_add(1, std::memory_order_relaxed);
     auto *job = new EngineStepJob(m_engine.get(), m_ourRhi.get(),
                                   m_sharedCtx, m_fallbackSurface.get(),
                                   this, m_pendingDt);
@@ -285,8 +289,37 @@ QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
 void FluxItem::releaseResources()
 {
-    m_engine.reset();
-    m_ourRhi.reset();
+    m_stopping.store(true, std::memory_order_seq_cst);
+    m_running = false;
+
+    // Wait for in-flight EngineStepJobs to complete
+    QElapsedTimer waitTimer;
+    waitTimer.start();
+    while (m_inflightJobs.load(std::memory_order_acquire) > 0) {
+        QThread::msleep(1);
+        if (waitTimer.elapsed() > 100) {
+            fprintf(stderr, "releaseResources: timeout waiting for %d inflight jobs\n",
+                    m_inflightJobs.load(std::memory_order_acquire));
+            break;
+        }
+    }
+
+    if (m_sharedCtx && m_fallbackSurface) {
+        if (m_sharedCtx->thread() != QThread::currentThread())
+            m_sharedCtx->moveToThread(QThread::currentThread());
+        if (!m_sharedCtx->makeCurrent(m_fallbackSurface.get())) {
+            fprintf(stderr, "releaseResources: cannot makeCurrent, leaking GPU resources\n");
+            m_engine.release();
+            m_ourRhi.release();
+        } else {
+            m_engine.reset();
+            m_ourRhi.reset();
+            m_sharedCtx->doneCurrent();
+        }
+    } else {
+        m_engine.reset();
+        m_ourRhi.reset();
+    }
     m_fallbackSurface.reset();
     delete m_sharedCtx;
     m_sharedCtx = nullptr;
@@ -321,7 +354,10 @@ int FluxItem::computeDisplaySize(int w, int h)
 
 void EngineStepJob::run()
 {
+    auto guard = qScopeGuard([this] { m_item->decrementInflight(); });
     if (!m_engine || !m_ourRhi || !m_sharedCtx || !m_fallbackSurface)
+        return;
+    if (m_item->isStopping())
         return;
 
     if (m_sharedCtx->thread() != QThread::currentThread()) {
@@ -372,4 +408,8 @@ void EngineStepJob::run()
     }
 
     m_ourRhi->endOffscreenFrame();
+
+    // Release GL context so releaseResources() can safely moveToThread + makeCurrent
+    if (QOpenGLContext::currentContext() == m_sharedCtx)
+        m_sharedCtx->doneCurrent();
 }
