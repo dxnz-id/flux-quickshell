@@ -132,9 +132,17 @@ void main() {
     float deltaBoost = mix(3.0, 25.0, 1.0 - variance);
     float momentumBoost = mix(3.0, 5.0, variance);
 
-    vec2 newVelocity = (1.0 - uDeltaTime * momentumBoost) * velocity
-        + (uLineLength * vel - endpoint) * deltaBoost * uDeltaTime;
-    vec2 newEndpoint = endpoint + uDeltaTime * newVelocity;
+    // Sub-step spring integration for FPS-independent motion
+    int springSteps = max(1, int(uDeltaTime * 30.0 + 0.5));
+    springSteps = min(springSteps, 4);
+    float subDt = uDeltaTime / float(springSteps);
+    vec2 subPos = endpoint;
+    vec2 subVel = velocity;
+    for (int i = 0; i < springSteps; i++) {
+        vec2 accel = (uLineLength * vel - subPos) * deltaBoost - subVel * momentumBoost;
+        subVel += accel * subDt;
+        subPos += subVel * subDt;
+    }
 
     float widthBoost = clamp(2.5 * length(vel), 0.0, 1.0);
     float newWidth = smoothstep(0.0, 1.0, widthBoost);
@@ -159,11 +167,17 @@ void main() {
         targetColor = vec3(clamp(vec2(1.0, 0.66) * (0.5 + vel), 0.0, 1.0), 0.5);
     }
 
-    vec3 newColorVelocity = colorVelocity * (1.0 - colorMomentumBoost * uDeltaTime)
-        + (targetColor - color.rgb) * colorDeltaBoost * uDeltaTime;
-    vec4 newColor = vec4(clamp(color.rgb + uDeltaTime * newColorVelocity, 0.0, 1.0), opacity);
+    // Sub-step color spring
+    vec3 subColorVel = colorVelocity;
+    vec3 subColorRgb = color.rgb;
+    for (int i = 0; i < springSteps; i++) {
+        vec3 colorAccel = (targetColor - subColorRgb) * colorDeltaBoost - subColorVel * colorMomentumBoost;
+        subColorVel += colorAccel * subDt;
+        subColorRgb += subColorVel * subDt;
+    }
+    vec4 newColor = vec4(clamp(subColorRgb, 0.0, 1.0), opacity);
 
-    imageStore(uOutImg, p0, vec4(newEndpoint, newVelocity));
+    imageStore(uOutImg, p0, vec4(subPos, subVel));
     imageStore(uOutImg, p1, newColor);
-    imageStore(uOutImg, p2, vec4(newColorVelocity, newWidth));
+    imageStore(uOutImg, p2, vec4(subColorVel, newWidth));
 }
