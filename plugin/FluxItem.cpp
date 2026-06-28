@@ -354,7 +354,11 @@ int FluxItem::computeDisplaySize(int w, int h)
 
 void EngineStepJob::run()
 {
-    auto guard = qScopeGuard([this] { m_item->decrementInflight(); });
+    auto guard = qScopeGuard([this] {
+        if (m_sharedCtx && QOpenGLContext::currentContext() == m_sharedCtx)
+            m_sharedCtx->doneCurrent();
+        m_item->decrementInflight();
+    });
     if (!m_engine || !m_ourRhi || !m_sharedCtx || !m_fallbackSurface)
         return;
     if (m_item->isStopping())
@@ -408,8 +412,4 @@ void EngineStepJob::run()
     }
 
     m_ourRhi->endOffscreenFrame();
-
-    // Release GL context so releaseResources() can safely moveToThread + makeCurrent
-    if (QOpenGLContext::currentContext() == m_sharedCtx)
-        m_sharedCtx->doneCurrent();
 }
