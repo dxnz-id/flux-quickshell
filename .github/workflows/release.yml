@@ -18,7 +18,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev libdbus-1-dev
+          sudo apt-get install -y -qq libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev libdbus-1-dev patchelf
 
       - name: Install aqtinstall with Qt 6.11 support
         run: |
@@ -41,12 +41,15 @@ jobs:
       - name: Build
         run: cmake --build build --target fluxengineplugin
 
-      - name: Package
+      - name: Fix RPATH and Package
         run: |
+          # Fix RPATH so libfluxengineplugin.so finds libfluxengine.so in same dir
+          patchelf --set-rpath '$ORIGIN' build/FluxEngine/libfluxengineplugin.so
           TAG=${GITHUB_REF_NAME}
           PKG="FluxEngine-${TAG}-linux-x86_64"
           mkdir -p dist/FluxEngine
           cp -r build/FluxEngine/libfluxengineplugin.so dist/FluxEngine/
+          cp -r build/libfluxengine.so dist/FluxEngine/
           cp -r build/FluxEngine/qmldir dist/FluxEngine/
           cp -r build/FluxEngine/fluxengine.qmltypes dist/FluxEngine/
           cp -r build/FluxEngine/shaders dist/FluxEngine/

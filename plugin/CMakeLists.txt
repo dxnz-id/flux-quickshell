@@ -55,7 +55,6 @@ qt_add_qml_module(fluxengine
     URI FluxEngine
     VERSION 1.0
     OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FluxEngine"
-    # NO_GENERATE_PLUGIN_SOURCE  -- let cmake auto-generate plugin
     NO_PLUGIN_OPTIONAL
     CLASS_NAME FluxEnginePlugin
     SOURCES
