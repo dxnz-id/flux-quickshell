@@ -115,6 +115,7 @@ private:
     std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameDrawSrb;     // rebuilt each frame in stepLines
     std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameEndpointSrb; // rebuilt each frame in stepLines
     std::unique_ptr<QRhiTexture> m_lineColorTex;       // 256x256 RGBA8 for ImageTexture mode (gumdrop/silver)
+    int m_colorTexPreset = -1;                          // which preset's texture is currently uploaded
     std::unique_ptr<QRhiSampler> m_lineColorSampler;   // linear sampler for color tex
     int m_lineStateReadIdx = 0;
     bool m_linePipelineReady = false;

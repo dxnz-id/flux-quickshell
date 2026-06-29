@@ -1218,6 +1218,75 @@ void FluxEngine::stepLines(QRhiCommandBuffer *cb)
     memset(lu._pad0, 0, sizeof(lu._pad0));
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_lineUniformBuf.get(), QByteArray((const char*)&lu, sizeof(lu)));
+
+    // Regenerate color texture if preset changed (gumdrop/silver use ImageTexture mode)
+    if (m_colorTexPreset != m_colorPreset && (m_colorPreset == 0 || m_colorPreset == 3 || m_colorPreset == 4)) {
+        m_colorTexPreset = m_colorPreset;
+        const int S = 256;
+        QByteArray data(S * S * 4, 0);
+        uint8_t *p = (uint8_t*)data.data();
+
+        if (m_colorPreset == 0) {
+            for (int y = 0; y < S; y++)
+                for (int x = 0; x < S; x++) {
+                    float t = float(x) / 255.0f;
+                    int idx = (y * S + x) * 4;
+                    p[idx+0] = uint8_t(std::min(255.0f, std::max(0.0f, (0.5f + 0.5f * sinf(t * 6.28318f + 0.0f)) * 255.0f)));
+                    p[idx+1] = uint8_t(std::min(255.0f, std::max(0.0f, (0.5f + 0.5f * sinf(t * 6.28318f + 2.094f)) * 255.0f)));
+                    p[idx+2] = uint8_t(std::min(255.0f, std::max(0.0f, (0.5f + 0.5f * sinf(t * 6.28318f + 4.188f)) * 255.0f)));
+                    p[idx+3] = 255;
+                }
+        } else if (m_colorPreset == 3) {
+            for (int y = 0; y < S; y++)
+                for (int x = 0; x < S; x++) {
+                    float t = float(x + y) / float(2 * S);
+                    int idx = (y * S + x) * 4;
+                    p[idx+0] = uint8_t(100.0f + t * 140.0f);
+                    p[idx+1] = uint8_t(45.0f + t * 155.0f);
+                    p[idx+2] = uint8_t(230.0f - t * 40.0f);
+                    p[idx+3] = 255;
+                }
+        } else if (m_colorPreset == 4) {
+            auto hash2 = [](float x, float y) -> float {
+                float h = sinf(x * 127.1f + y * 311.7f) * 43758.5453f;
+                return h - floorf(h);
+            };
+            auto smoothNoise = [&hash2](float x, float y) -> float {
+                int ix = int(floorf(x)), iy = int(floorf(y));
+                float fx = x - floorf(x), fy = y - floorf(y);
+                float sx = fx * fx * (3.0f - 2.0f * fx);
+                float sy = fy * fy * (3.0f - 2.0f * fy);
+                float a = hash2(float(ix), float(iy));
+                float b = hash2(float(ix + 1), float(iy));
+                float c = hash2(float(ix), float(iy + 1));
+                float d = hash2(float(ix + 1), float(iy + 1));
+                return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+            };
+            auto fbm = [&smoothNoise](float x, float y, int octaves) -> float {
+                float value = 0.0f, amp = 1.0f, maxVal = 0.0f;
+                for (int i = 0; i < octaves; i++) {
+                    value += amp * smoothNoise(x * (1 << i), y * (1 << i));
+                    maxVal += amp;
+                    amp *= 0.5f;
+                }
+                return value / maxVal;
+            };
+            for (int y = 0; y < S; y++)
+                for (int x = 0; x < S; x++) {
+                    float n = fbm(float(x) * 0.04f, float(y) * 0.04f, 4);
+                    uint8_t v = uint8_t(std::min(255.0f, std::max(0.0f, 80.0f + n * 130.0f)));
+                    int idx = (y * S + x) * 4;
+                    p[idx+0] = v; p[idx+1] = v; p[idx+2] = v; p[idx+3] = 255;
+                }
+        }
+
+        int rowBytes = S * 4;
+        QRhiTextureSubresourceUploadDescription subdesc(data, data.size());
+        subdesc.setDataStride(rowBytes);
+        QRhiTextureUploadEntry entry(0, 0, subdesc);
+        ub->uploadTexture(m_lineColorTex.get(), QRhiTextureUploadDescription(entry));
+    }
+
     cb->resourceUpdate(ub);
 
     // 1. Compute pass: update particle state
