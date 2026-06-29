@@ -135,10 +135,17 @@ void FluxItem::setMsaaSampleCount(int v)
     emit msaaSampleCountChanged();
 }
 
+void FluxItem::setDiagStep(int v)
+{
+    if (m_diagStep == v) return;
+    m_diagStep = v;
+    emit diagStepChanged();
+    update();
+}
+
 void FluxItem::initOurRhi()
 {
-    return; // STEP 1 — no-op
-
+    if (m_diagStep < 2) return;
     if (m_ourRhi)
         return;
 
@@ -182,6 +189,12 @@ void FluxItem::initOurRhi()
         return;
     }
 
+    if (m_diagStep < 3) {
+        // Step 2: context only, no QRhi
+        m_sharedCtx->doneCurrent();
+        return;
+    }
+
     QRhiGles2InitParams params;
     params.fallbackSurface = m_fallbackSurface.get();
     params.format = sgCtx->format();
@@ -197,7 +210,7 @@ void FluxItem::initOurRhi()
 
 void FluxItem::onFrameTick()
 {
-    return; // STEP 1 — no-op
+    if (m_diagStep < 5) return;
 
     if (!window() || !m_running)
         return;
@@ -237,12 +250,14 @@ void FluxItem::scheduleEngineStep()
 
 QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
-    return nullptr; // STEP 1 — no-op
+    if (m_diagStep < 2) return nullptr;
 
     if (!window())
         return nullptr;
 
     initOurRhi();
+
+    if (m_diagStep < 4) return nullptr;
 
     if (!m_engine && m_ourRhi) {
         m_engine = std::make_unique<FluxEngine>();

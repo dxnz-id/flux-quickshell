@@ -374,7 +374,13 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **QSB search path fix** — `FluxShaders::shaderPath()` parse `QML2_IMPORT_PATH` env var untuk quickshell compatibility.
 
 ### In Progress
-- (none)
+- Binary search diagnostic via `diagStep` Q_PROPERTY (currently STEP 1):
+  - Step 1: constructor only (no GL, no QRhi, no engine, no sim)
+  - Step 2: GL context creation (makeCurrent + doneCurrent, no QRhi)
+  - Step 3: QRhi creation (context + QRhi, no engine)
+  - Step 4: Engine init + display node (QSGImageNode with fallback dark blue)
+  - Step 5: Full simulation (all features)
+  - Protocol: change `diagStep: 1` in LockSurface.qml → restart qs → test unlock for each step
 
 ### Belum Dimulai
 - [ ] Lock state machine (Flux mode vs Normal mode for disable toggle)

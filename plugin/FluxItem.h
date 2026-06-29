@@ -54,6 +54,7 @@ class FluxItem : public QQuickItem {
     Q_PROPERTY(float lineWidthMultiplier READ lineWidthMultiplier WRITE setLineWidthMultiplier NOTIFY lineWidthMultiplierChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
     Q_PROPERTY(int msaaSampleCount READ msaaSampleCount WRITE setMsaaSampleCount NOTIFY msaaSampleCountChanged)
+    Q_PROPERTY(int diagStep READ diagStep WRITE setDiagStep NOTIFY diagStepChanged)
 public:
     explicit FluxItem(QQuickItem *parent = nullptr);
     ~FluxItem();
@@ -87,6 +88,8 @@ public:
 
     int msaaSampleCount() const { return m_msaaSamples; }
     void setMsaaSampleCount(int v);
+    int diagStep() const { return m_diagStep; }
+    void setDiagStep(int v);
 
     void storeReadback(const QByteArray &data);
     bool hasPendingReadback() const;
@@ -110,6 +113,7 @@ signals:
     void lineWidthMultiplierChanged();
     void zoomChanged();
     void msaaSampleCountChanged();
+    void diagStepChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -161,4 +165,5 @@ private:
     std::atomic<int> m_inflightJobs{0};
     std::atomic<bool> m_stopping{false};
     std::atomic<bool> m_appExiting{false};
+    int m_diagStep = 1;
 };
