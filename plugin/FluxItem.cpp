@@ -163,7 +163,6 @@ void FluxItem::initOurRhi()
         return;
 
     auto *ourCtx = new QOpenGLContext();
-    ourCtx->setShareContext(sgCtx);
     ourCtx->setFormat(sgCtx->format());
     if (!ourCtx->create()) {
         fprintf(stderr, "  ERROR: could not create shared GL context\n");
