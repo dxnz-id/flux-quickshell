@@ -46,6 +46,6 @@ void main() {
 
     gl_Position = vec4(point, 0.0, 1.0);
     vColor = color;
-    vVertex = vec2(aVertex.x / uAspect, aVertex.y);
-    vMidpointVector = vec2(endpoint.y / uAspect, -endpoint.x);
+    vVertex = aVertex;
+    vMidpointVector = vec2(endpoint.y, -endpoint.x);
 }
