@@ -166,4 +166,5 @@ private:
     std::atomic<bool> m_stopping{false};
     std::atomic<bool> m_appExiting{false};
     int m_diagStep = 1;
+    bool m_initQueued = false;
 };

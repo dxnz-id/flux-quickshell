@@ -149,6 +149,19 @@ void FluxItem::initOurRhi()
     if (m_ourRhi)
         return;
 
+    // Must create context on GUI thread so releaseResources() can safely
+    // makeCurrent() there at unlock time.
+    if (QThread::currentThread() != thread()) {
+        if (!m_initQueued) {
+            m_initQueued = true;
+            QMetaObject::invokeMethod(this, [this]() {
+                m_initQueued = false;
+                initOurRhi();
+            }, Qt::QueuedConnection);
+        }
+        return;
+    }
+
     // Detect app exit early — before Qt destroys SG GL context
     if (!m_appExiting.load()) {
         auto *app = QCoreApplication::instance();
@@ -358,14 +371,17 @@ void FluxItem::releaseResources()
     }
 
     if (m_sharedCtx && m_fallbackSurface) {
-        if (m_sharedCtx->thread() != QThread::currentThread())
-            m_sharedCtx->moveToThread(QThread::currentThread());
+        bool contextOnOurThread = (m_sharedCtx->thread() == QThread::currentThread());
 
-        // On app exit (aboutToQuit), Qt 6.11 destroys SG GL context before
-        // releaseResources(). makeCurrent may succeed (context handle alive)
-        // but share parent is gone → GPU resource destructors crash.
-        // Just leak everything — OS reclaims on process exit.
-        if (m_appExiting.load(std::memory_order_acquire)) {
+        if (!contextOnOurThread) {
+            // Context still on render thread — can't safely makeCurrent here.
+            // EngineStepJob guard should have moved it back, but in case of
+            // timeout or early exit, just leak GPU resources.
+            fprintf(stderr, "releaseResources: context on render thread (%p), leaking GPU resources\n",
+                    (void*)m_sharedCtx->thread());
+            m_engine.release();
+            m_ourRhi.release();
+        } else if (m_appExiting.load(std::memory_order_acquire)) {
             fprintf(stderr, "releaseResources: app exiting, leaking GPU resources\n");
             m_engine.release();
             m_ourRhi.release();
@@ -383,8 +399,14 @@ void FluxItem::releaseResources()
         m_ourRhi.reset();
     }
     m_fallbackSurface.reset();
-    delete m_sharedCtx;
-    m_sharedCtx = nullptr;
+    if (m_sharedCtx) {
+        if (m_sharedCtx->thread() == QThread::currentThread()) {
+            delete m_sharedCtx;
+        } else {
+            fprintf(stderr, "releaseResources: leaking sharedCtx (wrong thread)\n");
+        }
+        m_sharedCtx = nullptr;
+    }
 }
 
 void FluxItem::itemChange(ItemChange, const ItemChangeData &)
@@ -419,6 +441,13 @@ void EngineStepJob::run()
     auto guard = qScopeGuard([this] {
         if (m_sharedCtx && QOpenGLContext::currentContext() == m_sharedCtx)
             m_sharedCtx->doneCurrent();
+        // Move context back to GUI thread so releaseResources() is safe
+        if (m_sharedCtx && m_sharedCtx->thread() != m_item->thread()) {
+            m_sharedCtx->moveToThread(m_item->thread());
+        }
+        if (m_fallbackSurface && m_fallbackSurface->thread() != m_item->thread()) {
+            m_fallbackSurface->moveToThread(m_item->thread());
+        }
         m_item->decrementInflight();
     });
     if (!m_engine || !m_ourRhi || !m_sharedCtx || !m_fallbackSurface)
