@@ -475,18 +475,18 @@ void FluxEngine::createGraphicsPipelines()
 
 void FluxEngine::createDisplayPass()
 {
-    int ds = m_displaySize;
+    QSize ds = m_displaySize;
     int ms = m_msaaSamples;
 
     if (ms > 1) {
         // MSAA: MSAA render target + resolve texture
         m_displayTexMS.reset(m_rhi->newTexture(
-            QRhiTexture::RGBA8, {ds, ds}, ms, QRhiTexture::RenderTarget));
+            QRhiTexture::RGBA8, ds, ms, QRhiTexture::RenderTarget));
         m_displayTexMS->setName("displayTexMS");
         m_displayTexMS->create();
 
         m_displayTex.reset(m_rhi->newTexture(
-            QRhiTexture::RGBA8, {ds, ds}, 1,
+            QRhiTexture::RGBA8, ds, 1,
             QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
         m_displayTex->setName("displayTexResolve");
         m_displayTex->create();
@@ -498,7 +498,7 @@ void FluxEngine::createDisplayPass()
         // No MSAA: single render target (existing behavior)
         m_displayTexMS.reset();
         m_displayTex.reset(m_rhi->newTexture(
-            QRhiTexture::RGBA8, {ds, ds}, 1, QRhiTexture::RenderTarget));
+            QRhiTexture::RGBA8, ds, 1, QRhiTexture::RenderTarget));
         m_displayTex->setName("displayTex");
         m_displayTex->create();
         m_displayRT.reset(m_rhi->newTextureRenderTarget({m_displayTex.get()}));
@@ -537,7 +537,7 @@ void FluxEngine::createDisplayPass()
     makeDisplayPipeline("display_frag", m_passDisplay);
     makeDisplayPipeline("display_debug", m_passDebug);
 
-    fprintf(stderr, "  Display passes created (%dx%d RGBA8, MSAA=%dx)\n", ds, ds, ms);
+    fprintf(stderr, "  Display passes created (%dx%d RGBA8, MSAA=%dx)\n", ds.width(), ds.height(), ms);
 }
 
 static constexpr int PASSES_PER_FRAME = 32;
@@ -649,7 +649,7 @@ void FluxEngine::step(QRhiCommandBuffer *cb, float dt)
         ph = 0;
         m_frameCount++;
 
-        int ds = m_displaySize;
+        QSize ds = m_displaySize;
 
         // Run line update compute + render when mode is 5
         if (m_debugMode == 5) {
@@ -702,7 +702,7 @@ void FluxEngine::step(QRhiCommandBuffer *cb, float dt)
             break;
         }
         if (m_debugMode != 5) {
-            drawPass(cb, m_displayRT.get(), pipeline, srb.get(), ds, ds, nullptr);
+            drawPass(cb, m_displayRT.get(), pipeline, srb.get(), ds.width(), ds.height(), nullptr);
         }
     }
 
@@ -1039,7 +1039,7 @@ void FluxEngine::initBasepoints()
     m_rhi->endOffscreenFrame();
 }
 
-void FluxEngine::resizeDisplay(int logicalW, int logicalH, int displayTexSize)
+void FluxEngine::resizeDisplay(int logicalW, int logicalH, QSize displayTexSize)
 {
     m_desiredLogicalW = logicalW;
     m_desiredLogicalH = logicalH;
@@ -1075,7 +1075,7 @@ void FluxEngine::checkResize()
     m_lineCount = m_lineGridCols * m_lineGridRows;
 
     fprintf(stderr, "  RESIZE: display=%d logical=%dx%d grid=%dx%d lines=%d\n",
-        m_displaySize, m_logicalW, m_logicalH, m_lineGridCols, m_lineGridRows, m_lineCount);
+        m_displaySize.width(), m_displaySize.height(), m_logicalW, m_logicalH, m_lineGridCols, m_lineGridRows, m_lineCount);
 
     // Re-create line state (zeroed, matching reference) + basepoints
     m_lineStateReadIdx = 0;
@@ -1121,7 +1121,7 @@ void FluxEngine::stepLines(QRhiCommandBuffer *cb)
     int writeIdx = 1 - m_lineStateReadIdx;
     int lineCount = m_lineCount;
     int velIdx = m_velocityIndex;
-    int ds = m_displaySize;
+    QSize ds = m_displaySize;
 
     // Upload line uniforms (match reference get_line_scale_factor + noise)
     float aspect = float(m_logicalW) / float(m_logicalH);
@@ -1183,7 +1183,7 @@ void FluxEngine::stepLines(QRhiCommandBuffer *cb)
 
     // 2. Render pass: draw instanced lines + endpoints on black
     cb->beginPass(m_displayRT.get(), QColor(0, 0, 0, 255), QRhiDepthStencilClearValue{1.0f, 0});
-    cb->setViewport(QRhiViewport(0, 0, float(ds), float(ds)));
+    cb->setViewport(QRhiViewport(0, 0, float(ds.width()), float(ds.height())));
 
     // 2a. Draw lines
     cb->setGraphicsPipeline(m_lineDrawPipeline.get());

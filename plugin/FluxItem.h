@@ -99,7 +99,7 @@ protected:
 private:
     void initOurRhi();
     void initEngine();
-    int computeDisplaySize(int w, int h);
+    QSize computeDisplaySize(int w, int h);
 
 public slots:
     void onFrameTick();

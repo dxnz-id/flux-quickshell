@@ -20,7 +20,7 @@ public:
     bool isInitialized() const { return m_initialized; }
 
     QRhiTexture *displayTex() const { return m_displayTex.get(); }
-    int displaySize() const { return m_displaySize; }
+    QSize displaySize() const { return m_displaySize; }
     void setMsaaSamples(int s) { if (m_msaaSamples != s) { m_msaaSamples = s; m_resizeNeeded = true; } }
     int msaaSamples() const { return m_msaaSamples; }
     QRhiSampler *nearestSampler() const { return m_nearestSampler.get(); }
@@ -39,7 +39,7 @@ public:
     void setLineWidthMultiplier(float m) { m_lineWidthMultiplier = m; }
     void setZoom(float z) { m_zoom = z; }
 
-    void resizeDisplay(int logicalW, int logicalH, int displayTexSize);
+    void resizeDisplay(int logicalW, int logicalH, QSize displayTexSize);
     void checkResize();
 
 signals:
@@ -87,11 +87,11 @@ private:
     // Logical window size (from FluxItem, for line_scale_factor match reference)
     int m_logicalW = 750, m_logicalH = 750;
     int m_desiredLogicalW = 750, m_desiredLogicalH = 750;
-    int m_desiredDisplaySize = 512;
+    QSize m_desiredDisplaySize = {512, 512};
     bool m_resizeNeeded = false;
 
     // Display textures (512x512 RGBA8 by default)
-    int m_displaySize = 512;
+    QSize m_displaySize = {512, 512};
     std::unique_ptr<QRhiTexture> m_displayTex;       // resolve target (MSAA) or direct RT (no MSAA)
     std::unique_ptr<QRhiTexture> m_displayTexMS;     // MSAA render target (null when msaaSamples==1)
     std::unique_ptr<QRhiTextureRenderTarget> m_displayRT;

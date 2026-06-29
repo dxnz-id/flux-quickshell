@@ -254,8 +254,8 @@ void FluxItem::onFrameTick()
 
     if (m_engine->displayTex() && !m_readbackPending.load(std::memory_order_acquire)) {
         m_readbackPending.store(true, std::memory_order_release);
-        int ds = m_engine->displaySize();
-        int px = ds * ds * 4;
+        QSize ds = m_engine->displaySize();
+        int px = ds.width() * ds.height() * 4;
         auto *result = new QRhiReadbackResult();
         QByteArray *outData = new QByteArray();
         outData->resize(px);
@@ -342,28 +342,28 @@ QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     int w = int(width());
     int h = int(height());
     if (w != m_lastItemW || h != m_lastItemH) {
-        int ds = computeDisplaySize(w, h);
+        QSize ds = computeDisplaySize(w, h);
         if (m_engine)
             m_engine->resizeDisplay(w, h, ds);
         m_lastItemW = w;
         m_lastItemH = h;
     }
 
-    int ds = m_engine->displaySize();
+    QSize ds = m_engine->displaySize();
     imageNode->setRect(0, 0, width(), height());
-    imageNode->setSourceRect(QRectF(0, 0, ds, ds));
+    imageNode->setSourceRect(QRectF(0, 0, ds.width(), ds.height()));
 
     QImage img;
     {
         QMutexLocker lock(&m_readbackMutex);
-        if (m_readbackData.size() >= ds * ds * 4) {
+        if (m_readbackData.size() >= ds.width() * ds.height() * 4) {
             img = QImage((const uchar*)m_readbackData.constData(),
-                         ds, ds, QImage::Format_RGBA8888).copy();
+                         ds.width(), ds.height(), QImage::Format_RGBA8888).copy();
 
         }
     }
     if (img.isNull()) {
-        img = QImage(ds, ds, QImage::Format_RGBA8888);
+        img = QImage(ds.width(), ds.height(), QImage::Format_RGBA8888);
         img.fill(QColor(15, 15, 30));
     }
     auto *tex = window()->createTextureFromImage(img);
@@ -432,7 +432,7 @@ void FluxItem::setReadbackPending(bool p)
     m_readbackPending = p;
 }
 
-int FluxItem::computeDisplaySize(int w, int h)
+QSize FluxItem::computeDisplaySize(int w, int h)
 {
-    return std::min(w, h);
+    return QSize(w, h);
 }
