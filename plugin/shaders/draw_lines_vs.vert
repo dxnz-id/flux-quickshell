@@ -22,7 +22,8 @@ layout(binding = 2, std140) uniform LineUniforms {
     float uNoiseOffset2;
     float uNoiseBlendFactor;
     float uColorMode;
-    float _pad0[3];
+    float uPaletteIndex;
+    float _pad0[2];
 };
 
 layout(location = 0) out vec2 vVertex;

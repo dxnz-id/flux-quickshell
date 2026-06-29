@@ -50,7 +50,8 @@ struct LineUniforms {
     float noise_offset_2;
     float noise_blend_factor;
     float color_mode;
-    float _pad0[3];
+    float palette_index;
+    float _pad0[2];
 };
 static_assert(sizeof(LineUniforms) == 80, "LineUniforms must be 80 bytes");
 #pragma pack(pop)
@@ -746,6 +747,60 @@ void FluxEngine::tickLineNoise(float dt)
     }
 }
 
+void FluxEngine::generateColorTexture(int preset)
+{
+    const int S = 256;
+    QByteArray data(S * S * 4, 0);
+    uint8_t *p = (uint8_t*)data.data();
+
+    if (preset == 0) {
+        for (int y = 0; y < S; y++) {
+            for (int x = 0; x < S; x++) {
+                float t = float(x) / 255.0f;
+                int idx = (y * S + x) * 4;
+                p[idx+0] = uint8_t(std::min(255.0f, std::max(0.0f, (0.5f + 0.5f * sinf(t * 6.28318f + 0.0f)) * 255.0f)));
+                p[idx+1] = uint8_t(std::min(255.0f, std::max(0.0f, (0.5f + 0.5f * sinf(t * 6.28318f + 2.094f)) * 255.0f)));
+                p[idx+2] = uint8_t(std::min(255.0f, std::max(0.0f, (0.5f + 0.5f * sinf(t * 6.28318f + 4.188f)) * 255.0f)));
+                p[idx+3] = 255;
+            }
+        }
+    } else if (preset == 3) {
+        for (int y = 0; y < S; y++) {
+            for (int x = 0; x < S; x++) {
+                float t = float(x + y) / float(2 * S);
+                int idx = (y * S + x) * 4;
+                p[idx+0] = uint8_t(100.0f + t * 140.0f);
+                p[idx+1] = uint8_t(45.0f + t * 155.0f);
+                p[idx+2] = uint8_t(230.0f - t * 40.0f);
+                p[idx+3] = 255;
+            }
+        }
+    } else if (preset == 4) {
+        for (int y = 0; y < S; y++) {
+            for (int x = 0; x < S; x++) {
+                float n = sinf(float(x) * 0.15f) * cosf(float(y) * 0.12f) * 0.3f
+                    + sinf(float(x + y) * 0.07f + 1.3f) * 0.2f
+                    + sinf(float(x - y) * 0.05f + 2.7f) * 0.15f;
+                n = n * 0.5f + 0.5f;
+                uint8_t v = uint8_t(std::min(255.0f, std::max(0.0f, (100.0f + n * 70.0f))));
+                int idx = (y * S + x) * 4;
+                p[idx+0] = v; p[idx+1] = v; p[idx+2] = v; p[idx+3] = 255;
+            }
+        }
+    }
+
+    QRhiCommandBuffer *cb = nullptr;
+    if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) return;
+    QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
+    int rowBytes = S * 4;
+    QRhiTextureSubresourceUploadDescription subdesc(data, data.size());
+    subdesc.setDataStride(rowBytes);
+    QRhiTextureUploadEntry entry(0, 0, subdesc);
+    ub->uploadTexture(m_lineColorTex.get(), QRhiTextureUploadDescription(entry));
+    cb->resourceUpdate(ub);
+    m_rhi->endOffscreenFrame();
+}
+
 void FluxEngine::drawPass(QRhiCommandBuffer *cb, QRhiTextureRenderTarget *rt,
                               PassPipeline &pass, int w, int h,
                               QRhiResourceUpdateBatch *ub)
@@ -842,37 +897,17 @@ void FluxEngine::createLinePipelines()
 
     recreateLineGraphicsPipelines();
 
-    // --- Color texture for ImageTexture mode (256x1 RGBA8 rainbow gradient) ---
+    // --- Color texture for ImageTexture mode (256x256 RGBA8) ---
     m_lineColorTex.reset(m_rhi->newTexture(
-        QRhiTexture::RGBA8, {256, 1}, 1, QRhiTexture::UsedAsTransferSource));
+        QRhiTexture::RGBA8, {256, 256}, 1, QRhiTexture::UsedAsTransferSource));
     m_lineColorTex->setName("lineColorTex");
     m_lineColorTex->create();
     m_lineColorSampler.reset(m_rhi->newSampler(
         QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
-        QRhiSampler::Repeat, QRhiSampler::ClampToEdge));
+        QRhiSampler::Mirror, QRhiSampler::Mirror));
     m_lineColorSampler->setName("lineColorSampler");
     m_lineColorSampler->create();
-    {
-        QByteArray colData(256 * 4, 0);
-        uint8_t *cp = (uint8_t*)colData.data();
-        for (int x = 0; x < 256; x++) {
-            float t = float(x) / 255.0f;
-            float r = 0.5f + 0.5f * sinf(t * 6.28318f + 0.0f);
-            float g = 0.5f + 0.5f * sinf(t * 6.28318f + 2.094f);
-            float b = 0.5f + 0.5f * sinf(t * 6.28318f + 4.188f);
-            cp[x*4+0] = uint8_t(std::min(std::max(r * 255.0f, 0.0f), 255.0f));
-            cp[x*4+1] = uint8_t(std::min(std::max(g * 255.0f, 0.0f), 255.0f));
-            cp[x*4+2] = uint8_t(std::min(std::max(b * 255.0f, 0.0f), 255.0f));
-            cp[x*4+3] = 255;
-        }
-        QRhiCommandBuffer *cb = nullptr;
-        if (m_rhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) { m_linePipelineReady = false; return; }
-        QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
-        QRhiTextureSubresourceUploadDescription subdesc(colData, colData.size());
-        ub->uploadTexture(m_lineColorTex.get(), QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, subdesc)));
-        cb->resourceUpdate(ub);
-        m_rhi->endOffscreenFrame();
-    }
+    generateColorTexture(0); // upload initial rainbow gradient
 
     m_linePipelineReady = true;
 
@@ -1149,7 +1184,13 @@ void FluxEngine::stepLines(QRhiCommandBuffer *cb)
     lu.noise_offset_1 = m_lineNoiseOffset1;
     lu.noise_offset_2 = m_lineNoiseOffset2;
     lu.noise_blend_factor = m_lineNoiseBlendFactor;
-    lu.color_mode = m_colorMode;
+    {
+        int cm = int(m_colorPreset);
+        if (cm == 0) { lu.color_mode = 0.0f; lu.palette_index = 0.0f; }
+        else if (cm <= 2) { lu.color_mode = 1.0f; lu.palette_index = float(cm - 1); }
+        else if (cm == 5) { lu.color_mode = 1.0f; lu.palette_index = 2.0f; }
+        else { lu.color_mode = 2.0f; lu.palette_index = 0.0f; }
+    }
     memset(lu._pad0, 0, sizeof(lu._pad0));
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_lineUniformBuf.get(), QByteArray((const char*)&lu, sizeof(lu)));

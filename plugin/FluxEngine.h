@@ -34,7 +34,7 @@ public:
     void setDissipation(float d) { m_dissipation = d; m_paramsDirty = true; }
     void setNoiseMultiplier(float n) { m_noiseMultiplier = n; m_paramsDirty = true; }
     void setPressureIterations(int p) { m_pressureIterations = p; }
-    void setColorMode(int m) { m_colorMode = float(m); }
+    void setColorPreset(int p) { m_colorPreset = p; }
     void setLineVariance(float v) { m_lineVariance = v; }
     void setLineWidthMultiplier(float m) { m_lineWidthMultiplier = m; }
     void setZoom(float z) { m_zoom = z; }
@@ -61,6 +61,7 @@ private:
     void initBasepoints();
     void updateNoiseChannels(float dt);
     void tickLineNoise(float dt);
+    void generateColorTexture(int preset);
 
     QRhiShaderResourceBindings *buildBinding(std::initializer_list<QRhiShaderResourceBinding> list);
 
@@ -113,7 +114,7 @@ private:
     std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameComputeSrb;  // rebuilt each frame in stepLines
     std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameDrawSrb;     // rebuilt each frame in stepLines
     std::unique_ptr<QRhiShaderResourceBindings> m_lineFrameEndpointSrb; // rebuilt each frame in stepLines
-    std::unique_ptr<QRhiTexture> m_lineColorTex;       // 256x1 RGBA8 gradient for ImageTexture mode
+    std::unique_ptr<QRhiTexture> m_lineColorTex;       // 256x256 RGBA8 for ImageTexture mode (gumdrop/silver)
     std::unique_ptr<QRhiSampler> m_lineColorSampler;   // linear sampler for color tex
     int m_lineStateReadIdx = 0;
     bool m_linePipelineReady = false;
@@ -181,7 +182,7 @@ private:
     int m_debugMode = 5;  // Lines mode
 
     // Exposed QML settings
-    float m_colorMode = 0.0f;
+    int m_colorPreset = 0;
     float m_lineVariance = 0.55f;
     float m_lineWidthMultiplier = 1.0f;
     float m_zoom = 1.6f;

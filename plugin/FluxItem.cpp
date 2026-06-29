@@ -53,12 +53,12 @@ void FluxItem::setDebugMode(int mode)
     update();
 }
 
-void FluxItem::setColorMode(int v)
+void FluxItem::setColorPreset(int v)
 {
-    if (m_colorMode == v) return;
-    m_colorMode = v;
-    if (m_engine) m_engine->setColorMode(v);
-    emit colorModeChanged();
+    if (m_colorPreset == v) return;
+    m_colorPreset = v;
+    if (m_engine) m_engine->setColorPreset(v);
+    emit colorPresetChanged();
 }
 
 void FluxItem::setViscosity(float v)
@@ -303,7 +303,7 @@ void FluxItem::initEngine()
     m_engine = std::make_unique<FluxEngine>();
     m_engine->init(m_ourRhi.get(), m_simSize);
     m_engine->setDebugMode(m_debugMode);
-    m_engine->setColorMode(m_colorMode);
+    m_engine->setColorPreset(m_colorPreset);
     m_engine->setViscosity(m_viscosity);
     m_engine->setNoiseMultiplier(m_noiseMultiplier);
     m_engine->setTimestep(m_timestep);

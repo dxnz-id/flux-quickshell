@@ -20,7 +20,8 @@ layout(binding = 0, std140) uniform LineUniforms {
     float uNoiseOffset2;
     float uNoiseBlendFactor;
     float uColorMode;
-    float _pad0[3];
+    float uPaletteIndex;
+    float _pad0[2];
 };
 layout(binding = 1) uniform sampler2D uStateTex;
 

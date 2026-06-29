@@ -22,20 +22,39 @@ layout(binding = 3, std140) uniform LineUniforms {
     float uNoiseOffset2;
     float uNoiseBlendFactor;
     float uColorMode;
-    float _pad0[3];
+    float uPaletteIndex;
+    float _pad0[2];
 };
 layout(binding = 4) uniform sampler2D uColorTex;
 
 const float PI = 3.141592653589793;
 const float TAU = 6.283185307179586;
 
-const vec4 COLOR_PALETTE[6] = vec4[](
+const vec4 PALETTE_PLASMA[6] = vec4[](
     vec4(60.219/255.0, 37.249/255.0, 66.430/255.0, 1.0),
     vec4(170.962/255.0, 54.487/255.0, 50.966/255.0, 1.0),
     vec4(230.299/255.0, 39.276/255.0, 5.545/255.0, 1.0),
     vec4(242.924/255.0, 94.356/255.0, 22.419/255.0, 1.0),
     vec4(242.435/255.0, 156.752/255.0, 58.979/255.0, 1.0),
     vec4(135.291/255.0, 152.793/255.0, 182.473/255.0, 1.0)
+);
+
+const vec4 PALETTE_POOLSIDE[6] = vec4[](
+    vec4(76.0/255.0, 156.0/255.0, 228.0/255.0, 1.0),
+    vec4(140.0/255.0, 204.0/255.0, 244.0/255.0, 1.0),
+    vec4(108.0/255.0, 180.0/255.0, 236.0/255.0, 1.0),
+    vec4(188.0/255.0, 228.0/255.0, 244.0/255.0, 1.0),
+    vec4(124.0/255.0, 220.0/255.0, 236.0/255.0, 1.0),
+    vec4(156.0/255.0, 208.0/255.0, 236.0/255.0, 1.0)
+);
+
+const vec4 PALETTE_FREEDOM[6] = vec4[](
+    vec4(0.0/255.0, 87.0/255.0, 183.0/255.0, 1.0),
+    vec4(0.0/255.0, 87.0/255.0, 183.0/255.0, 1.0),
+    vec4(0.0/255.0, 87.0/255.0, 183.0/255.0, 1.0),
+    vec4(255.0/255.0, 215.0/255.0, 0.0/255.0, 1.0),
+    vec4(255.0/255.0, 215.0/255.0, 0.0/255.0, 1.0),
+    vec4(255.0/255.0, 215.0/255.0, 0.0/255.0, 1.0)
 );
 
 vec4 permute(vec4 x) {
@@ -83,14 +102,14 @@ float snoise(vec3 v) {
     return 42.0 * dot(m, px);
 }
 
-vec4 getColor(float value, float limit) {
+vec4 getColor(vec4 palette[6], float value, float limit) {
     float size = 6.0;
     float slice = limit / size;
     float rawIndex = mod(value, limit) / slice;
     int index = int(floor(rawIndex));
     int nextIndex = int(mod(float(index + 1), size));
     float interp = fract(rawIndex);
-    return mix(COLOR_PALETTE[index], COLOR_PALETTE[nextIndex], interp);
+    return mix(palette[index], palette[nextIndex], interp);
 }
 
 void main() {
@@ -153,7 +172,12 @@ void main() {
         targetColor = vec3(clamp(vec2(1.0, 0.66) * (0.5 + vel), 0.0, 1.0), 0.5);
     } else if (cm == 1) { // ColorWheel
         float angle = atan(vel.y, vel.x);
-        targetColor = getColor(angle + PI, TAU).rgb;
+        int pi = int(uPaletteIndex);
+        vec4 pal[6];
+        if (pi == 0) { pal = PALETTE_PLASMA; }
+        else if (pi == 1) { pal = PALETTE_POOLSIDE; }
+        else { pal = PALETTE_FREEDOM; }
+        targetColor = getColor(pal, angle + PI, TAU).rgb;
     } else if (cm == 2) { // ImageTexture
         targetColor = texture(uColorTex, 2.0 * vel + 0.5).rgb;
         colorMomentumBoost = 5.0;

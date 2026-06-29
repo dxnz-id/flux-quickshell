@@ -23,7 +23,7 @@ class FluxItem : public QQuickItem {
     Q_PROPERTY(int simSize READ simSize WRITE setSimSize NOTIFY simSizeChanged)
     Q_PROPERTY(int debugMode READ debugMode WRITE setDebugMode NOTIFY debugModeChanged)
 
-    Q_PROPERTY(int colorMode READ colorMode WRITE setColorMode NOTIFY colorModeChanged)
+    Q_PROPERTY(int colorPreset READ colorPreset WRITE setColorPreset NOTIFY colorPresetChanged)
     Q_PROPERTY(float viscosity READ viscosity WRITE setViscosity NOTIFY viscosityChanged)
     Q_PROPERTY(float noiseMultiplier READ noiseMultiplier WRITE setNoiseMultiplier NOTIFY noiseMultiplierChanged)
     Q_PROPERTY(float timestep READ timestep WRITE setTimestep NOTIFY timestepChanged)
@@ -46,8 +46,8 @@ public:
     int debugMode() const { return m_debugMode; }
     void setDebugMode(int mode);
 
-    int colorMode() const { return m_colorMode; }
-    void setColorMode(int v);
+    int colorPreset() const { return m_colorPreset; }
+    void setColorPreset(int v);
     float viscosity() const { return m_viscosity; }
     void setViscosity(float v);
     float noiseMultiplier() const { return m_noiseMultiplier; }
@@ -79,7 +79,7 @@ signals:
     void frameCountChanged(int count);
     void simSizeChanged();
     void debugModeChanged();
-    void colorModeChanged();
+    void colorPresetChanged();
     void viscosityChanged();
     void noiseMultiplierChanged();
     void timestepChanged();
@@ -111,7 +111,7 @@ private:
     int m_simSize = 128;
     int m_debugMode = 5;
 
-    int m_colorMode = 0;
+    int m_colorPreset = 0;
     float m_viscosity = 5.0f;
     float m_noiseMultiplier = 0.45f;
     float m_timestep = 1.0f / 60.0f;
