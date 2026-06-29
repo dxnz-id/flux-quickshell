@@ -137,6 +137,8 @@ void FluxItem::setMsaaSampleCount(int v)
 
 void FluxItem::initOurRhi()
 {
+    return; // STEP 1 — no-op
+
     if (m_ourRhi)
         return;
 
@@ -195,6 +197,8 @@ void FluxItem::initOurRhi()
 
 void FluxItem::onFrameTick()
 {
+    return; // STEP 1 — no-op
+
     if (!window() || !m_running)
         return;
 
@@ -233,6 +237,8 @@ void FluxItem::scheduleEngineStep()
 
 QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
+    return nullptr; // STEP 1 — no-op
+
     if (!window())
         return nullptr;
 
