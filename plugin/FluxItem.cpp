@@ -221,6 +221,8 @@ void FluxItem::onFrameTick()
     if (!m_sharedCtx || !m_fallbackSurface)
         return;
 
+    fprintf(stderr, "FLUX STUCK 0: enter onFrameTick\n");
+
     if (!m_elapsed.isValid())
         m_elapsed.start();
 
@@ -230,6 +232,8 @@ void FluxItem::onFrameTick()
 
     if (dt > 0.1f)
         dt = 0.1f;
+
+    fprintf(stderr, "FLUX STUCK 1: before makeCurrent\n");
 
     // Ensure GL context is on GUI thread before making current
     if (m_sharedCtx->thread() != QThread::currentThread()) {
@@ -242,15 +246,24 @@ void FluxItem::onFrameTick()
     if (!m_sharedCtx->makeCurrent(m_fallbackSurface.get()))
         return;
 
+    fprintf(stderr, "FLUX STUCK 2: after makeCurrent\n");
+
     m_engine->checkResize();
+
+    fprintf(stderr, "FLUX STUCK 3: after checkResize\n");
 
     QRhiCommandBuffer *cb = nullptr;
     if (m_ourRhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
+        fprintf(stderr, "FLUX: beginOffscreenFrame FAILED\n");
         m_sharedCtx->doneCurrent();
         return;
     }
 
+    fprintf(stderr, "FLUX STUCK 4: after beginOffscreenFrame\n");
+
     m_engine->step(cb, dt);
+
+    fprintf(stderr, "FLUX STUCK 5: after step\n");
 
     if (m_engine->displayTex() && !m_readbackPending.load(std::memory_order_acquire)) {
         m_readbackPending.store(true, std::memory_order_release);
@@ -274,10 +287,19 @@ void FluxItem::onFrameTick()
         cb->resourceUpdate(rub);
     }
 
+    fprintf(stderr, "FLUX STUCK 6: after readback submit\n");
+
     m_ourRhi->endOffscreenFrame();
+
+    fprintf(stderr, "FLUX STUCK 7: after endOffscreenFrame\n");
+
     m_sharedCtx->doneCurrent();
 
+    fprintf(stderr, "FLUX STUCK 8: after doneCurrent\n");
+
     update();
+
+    fprintf(stderr, "FLUX STUCK 9: after update, frame %lld\n", (long long)m_frameCount);
 
     m_frameCount++;
     emit frameCountChanged(m_frameCount);
