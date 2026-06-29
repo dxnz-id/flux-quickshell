@@ -281,7 +281,7 @@ void FluxEngine::updateUniforms()
     float dt = m_fluidTimestep;
     float centerFactor = 1.0f / (m_viscosity * dt);
     float stencilFactor = 1.0f / (4.0f + centerFactor);
-    FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor, m_noiseMultiplier, 0.0f };
+    FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor, 0.0f, 0.0f };
 
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_fluidUniformBuf.get(), QByteArray((const char*)&fu, sizeof(fu)));
