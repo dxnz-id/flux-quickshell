@@ -219,6 +219,7 @@ void FluxItem::initOurRhi()
     }
 
     m_sharedCtx->doneCurrent();
+    update(); // trigger next frame so initEngine() can run
 }
 
 void FluxItem::onFrameTick()
@@ -247,6 +248,41 @@ void FluxItem::onFrameTick()
     emit frameCountChanged(m_frameCount);
 }
 
+void FluxItem::initEngine()
+{
+    if (m_engine) return;
+    if (!m_ourRhi) return;
+
+    // Engine init must run on GUI thread because QRhi was created there.
+    if (QThread::currentThread() != thread()) {
+        if (!m_engineInitQueued) {
+            m_engineInitQueued = true;
+            QMetaObject::invokeMethod(this, [this]() {
+                m_engineInitQueued = false;
+                initEngine();
+            }, Qt::QueuedConnection);
+        }
+        return;
+    }
+
+    m_engine = std::make_unique<FluxEngine>();
+    m_engine->init(m_ourRhi.get(), m_simSize);
+    m_engine->setDebugMode(m_debugMode);
+    m_engine->setColorMode(m_colorMode);
+    m_engine->setViscosity(m_viscosity);
+    m_engine->setNoiseMultiplier(m_noiseMultiplier);
+    m_engine->setTimestep(m_timestep);
+    m_engine->setDissipation(m_dissipation);
+    m_engine->setPressureIterations(m_pressureIterations);
+    m_engine->setLineVariance(m_lineVariance);
+    m_engine->setLineWidthMultiplier(m_lineWidthMultiplier);
+    m_engine->setZoom(m_zoom);
+    m_engine->setMsaaSamples(m_msaaSamples);
+
+    fprintf(stderr, "  engine initialized on GUI thread\n");
+    update();
+}
+
 void FluxItem::scheduleEngineStep()
 {
     if (!m_ourRhi || !m_engine || !m_engine->isInitialized() || !m_sharedCtx)
@@ -272,21 +308,8 @@ QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     if (m_diagStep < 4) return nullptr;
 
-    if (!m_engine && m_ourRhi) {
-        m_engine = std::make_unique<FluxEngine>();
-        m_engine->init(m_ourRhi.get(), m_simSize);
-        m_engine->setDebugMode(m_debugMode);
-        m_engine->setColorMode(m_colorMode);
-        m_engine->setViscosity(m_viscosity);
-        m_engine->setNoiseMultiplier(m_noiseMultiplier);
-        m_engine->setTimestep(m_timestep);
-        m_engine->setDissipation(m_dissipation);
-        m_engine->setPressureIterations(m_pressureIterations);
-        m_engine->setLineVariance(m_lineVariance);
-        m_engine->setLineWidthMultiplier(m_lineWidthMultiplier);
-        m_engine->setZoom(m_zoom);
-        m_engine->setMsaaSamples(m_msaaSamples);
-    }
+    initEngine();
+    if (!m_engine) return nullptr; // deferred — engine init queued to GUI thread
 
     auto *imageNode = static_cast<QSGImageNode *>(oldNode);
     if (!imageNode) {

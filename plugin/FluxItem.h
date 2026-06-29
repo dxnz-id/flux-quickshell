@@ -122,6 +122,7 @@ protected:
 
 private:
     void initOurRhi();
+    void initEngine();
     void scheduleEngineStep();
     int computeDisplaySize(int w, int h);
 
@@ -167,4 +168,5 @@ private:
     std::atomic<bool> m_appExiting{false};
     int m_diagStep = 1;
     bool m_initQueued = false;
+    bool m_engineInitQueued = false;
 };
