@@ -776,13 +776,37 @@ void FluxEngine::generateColorTexture(int preset)
             }
         }
     } else if (preset == 4) {
+        // Value noise FBM matching reference silver texture
+        auto hash2 = [](float x, float y) -> float {
+            float h = sinf(x * 127.1f + y * 311.7f) * 43758.5453f;
+            return h - floorf(h);
+        };
+        auto smoothNoise = [&hash2](float x, float y) -> float {
+            int ix = int(floorf(x));
+            int iy = int(floorf(y));
+            float fx = x - floorf(x);
+            float fy = y - floorf(y);
+            float sx = fx * fx * (3.0f - 2.0f * fx);
+            float sy = fy * fy * (3.0f - 2.0f * fy);
+            float a = hash2(float(ix), float(iy));
+            float b = hash2(float(ix + 1), float(iy));
+            float c = hash2(float(ix), float(iy + 1));
+            float d = hash2(float(ix + 1), float(iy + 1));
+            return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+        };
+        auto fbm = [&smoothNoise](float x, float y, int octaves) -> float {
+            float value = 0.0f, amp = 1.0f, maxVal = 0.0f;
+            for (int i = 0; i < octaves; i++) {
+                value += amp * smoothNoise(x * (1 << i), y * (1 << i));
+                maxVal += amp;
+                amp *= 0.5f;
+            }
+            return value / maxVal;
+        };
         for (int y = 0; y < S; y++) {
             for (int x = 0; x < S; x++) {
-                float n = sinf(float(x) * 0.15f) * cosf(float(y) * 0.12f) * 0.3f
-                    + sinf(float(x + y) * 0.07f + 1.3f) * 0.2f
-                    + sinf(float(x - y) * 0.05f + 2.7f) * 0.15f;
-                n = n * 0.5f + 0.5f;
-                uint8_t v = uint8_t(std::min(255.0f, std::max(0.0f, (100.0f + n * 70.0f))));
+                float n = fbm(float(x) * 0.04f, float(y) * 0.04f, 4);
+                uint8_t v = uint8_t(std::min(255.0f, std::max(0.0f, 80.0f + n * 130.0f)));
                 int idx = (y * S + x) * 4;
                 p[idx+0] = v; p[idx+1] = v; p[idx+2] = v; p[idx+3] = 255;
             }
