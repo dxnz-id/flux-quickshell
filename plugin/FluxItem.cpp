@@ -315,10 +315,26 @@ void FluxItem::releaseResources()
                     elapsed, m_inflightJobs.load(std::memory_order_acquire));
         }
         if (elapsed > 500) {
-            fprintf(stderr, "releaseResources: timeout after %dms, %d inflight jobs still pending — leaking GPU resources\n",
+            fprintf(stderr, "releaseResources: timeout after %dms, %d inflight jobs still pending — force-clearing\n",
                     elapsed, m_inflightJobs.load(std::memory_order_acquire));
+            m_inflightJobs.store(0, std::memory_order_release);
             break;
         }
+    }
+
+    // Window might be gone (render loop stopped), can't safely touch GL
+    if (!window()) {
+        fprintf(stderr, "releaseResources: window gone, leaking GPU resources\n");
+        if (m_sharedCtx && m_fallbackSurface) {
+            m_engine.release();
+            m_ourRhi.release();
+        } else {
+            m_engine.reset();
+            m_ourRhi.reset();
+        }
+        m_fallbackSurface.reset();
+        if (m_sharedCtx) { delete m_sharedCtx; m_sharedCtx = nullptr; }
+        return;
     }
 
     if (m_sharedCtx && m_fallbackSurface) {
