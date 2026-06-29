@@ -44,7 +44,7 @@ void main() {
 
     vec2 point = vec2(uAspect, 1.0) * uZoom * (aBasepoint * 2.0 - 1.0)
         + endpoint
-        + uLineWidth * width * cv;
+        + 0.5 * uLineWidth * width * cv;
     point.x /= uAspect;
 
     gl_Position = vec4(point, 0.0, 1.0);
