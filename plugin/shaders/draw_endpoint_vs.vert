@@ -39,13 +39,16 @@ void main() {
     vec4 color = texelFetch(uStateTex, ivec2((base + 1) % texW, (base + 1) / texW), 0);
     float width = texelFetch(uStateTex, ivec2((base + 2) % texW, (base + 2) / texW), 0).w;
 
+    // Re-center vertex from line quad space [-0.5,0.5]x[0,1] to [-1,1]x[-1,1]
+    vec2 cv = vec2(aVertex.x * 2.0, aVertex.y * 2.0 - 1.0);
+
     vec2 point = vec2(uAspect, 1.0) * uZoom * (aBasepoint * 2.0 - 1.0)
         + endpoint
-        + uLineWidth * width * aVertex;
+        + uLineWidth * width * cv;
     point.x /= uAspect;
 
     gl_Position = vec4(point, 0.0, 1.0);
     vColor = color;
-    vVertex = aVertex;
+    vVertex = cv;
     vMidpointVector = vec2(endpoint.y, -endpoint.x);
 }

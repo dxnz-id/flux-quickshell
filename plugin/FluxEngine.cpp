@@ -1074,7 +1074,7 @@ void FluxEngine::checkResize()
     m_lineGridRows = int(frows) + 1;
     m_lineCount = m_lineGridCols * m_lineGridRows;
 
-    fprintf(stderr, "  RESIZE: display=%d logical=%dx%d grid=%dx%d lines=%d\n",
+    fprintf(stderr, "  RESIZE: display=%dx%d logical=%dx%d grid=%dx%d lines=%d\n",
         m_displaySize.width(), m_displaySize.height(), m_logicalW, m_logicalH, m_lineGridCols, m_lineGridRows, m_lineCount);
 
     // Re-create line state (zeroed, matching reference) + basepoints
