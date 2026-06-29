@@ -225,6 +225,8 @@ void FluxItem::initOurRhi()
 void FluxItem::onFrameTick()
 {
     if (m_diagStep < 5) return;
+    if (m_stopping.load(std::memory_order_acquire))
+        return;
 
     if (!window() || !m_running)
         return;
@@ -300,6 +302,8 @@ void FluxItem::scheduleEngineStep()
 QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
     if (m_diagStep < 2) return nullptr;
+    if (m_stopping.load(std::memory_order_acquire))
+        return oldNode;
 
     if (!window())
         return nullptr;
@@ -355,8 +359,8 @@ QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
 void FluxItem::releaseResources()
 {
-    m_stopping.store(true, std::memory_order_seq_cst);
     m_running = false;
+    m_stopping.store(true, std::memory_order_seq_cst);
 
     // Wait for in-flight EngineStepJobs to complete
     QElapsedTimer waitTimer;
@@ -369,12 +373,6 @@ void FluxItem::releaseResources()
             lastLogMs = elapsed;
             fprintf(stderr, "releaseResources: waiting for inflight jobs (%dms, %d remaining)\n",
                     elapsed, m_inflightJobs.load(std::memory_order_acquire));
-        }
-        if (elapsed > 500) {
-            fprintf(stderr, "releaseResources: timeout after %dms, %d inflight jobs still pending — force-clearing\n",
-                    elapsed, m_inflightJobs.load(std::memory_order_acquire));
-            m_inflightJobs.store(0, std::memory_order_release);
-            break;
         }
     }
 
@@ -498,6 +496,13 @@ void EngineStepJob::run()
     QRhiCommandBuffer *cb = nullptr;
     if (m_ourRhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
         fprintf(stderr, "  STUCK: beginOffscreenFrame FAILED at engine frame %d\n", m_engine->frameCount());
+        return;
+    }
+
+    // Double-check stopping after beginOffscreenFrame — releaseResources
+    // might have been called while we were waiting
+    if (m_item->isStopping()) {
+        m_ourRhi->endOffscreenFrame();
         return;
     }
 
