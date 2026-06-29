@@ -41,11 +41,11 @@ void main() {
 
     vec2 point = vec2(uAspect, 1.0) * uZoom * (aBasepoint * 2.0 - 1.0)
         + endpoint
-        + 0.5 * uLineWidth * width * aVertex;
+        + uLineWidth * width * aVertex;
     point.x /= uAspect;
 
     gl_Position = vec4(point, 0.0, 1.0);
     vColor = color;
-    vVertex = aVertex;
-    vMidpointVector = vec2(endpoint.y, -endpoint.x);
+    vVertex = vec2(aVertex.x / uAspect, aVertex.y);
+    vMidpointVector = vec2(endpoint.y / uAspect, -endpoint.x);
 }
