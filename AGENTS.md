@@ -358,6 +358,10 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] Phase 7: Endpoint rendering — `draw_endpoint_vs.vert` + `draw_endpoint_fs.frag` matching reference endpoint.wgsl (top/bottom premultiplied alpha + side detection + smoothEdges)
 
 ### Selesai
+- [x] **Fade-out unlock animation** — `LockScreen.onUnlocked` starts 600ms timer before `screenLocked=false`. `LockSurface` detects `context.onUnlocked` via `Connections` and fades fluid + toolbar to 0. Poweroff/Reboot tetap instant.
+- [x] **Keys.onPressed fix** — `event.accepted = false` di root `Keys.onPressed` agar key events propagate ke passwordBox.
+- [x] **DRY mouse handlers** — `onPressed`/`onPositionChanged` now call `showToolbar()`.
+- [x] **Busy-wait 100ms→500ms** — `releaseResources()` logs progress every 100ms, waits up to 500ms before giving up.
 - [x] **Configurable simulation parameters via QML** — 10 parameters exposed via Q_PROPERTY (colorMode, viscosity, noiseMultiplier, timestep, dissipation, pressureIterations, lineVariance, lineWidthMultiplier, zoom, msaaSampleCount). `m_fluidUniformBuf` revived and bound at `binding=8` to all solver shaders. `GpuNoiseParams.noiseMultiplier` replaces hardcoded NOISE_MULT.
 - [x] **MSAA 4x configurable** — `msaaSampleCount` Q_PROPERTY (1/2/4, default 4). `createDisplayPass()` creates MSAA + resolve textures. `recreateLineGraphicsPipelines()` ensures pipelines match current MSAA sample count.
 - [x] **RGBA32F state texture** — `m_lineStateTex` format RGBA16F → RGBA32F. Compute shader `layout(rgba32f)` must match C++ `QRhiTexture::RGBA32F` — mismatch silently corrupts state data.
@@ -369,11 +373,10 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **QSB search path fix** — `FluxShaders::shaderPath()` parse `QML2_IMPORT_PATH` env var untuk quickshell compatibility.
 
 ### In Progress
-- [ ] Quickshell lockscreen integration — `FluxBackground.qml` → `LockScreen.qml`
+- (none)
 
 ### Belum Dimulai
-- [ ] Integrasi ke dots-hyprfork lockscreen (`LockScreen.qml` + `GlobalStates`)
-- [ ] Lock state machine (Flux mode vs Normal mode)
+- [ ] Lock state machine (Flux mode vs Normal mode for disable toggle)
 
 ### Known Issues
 

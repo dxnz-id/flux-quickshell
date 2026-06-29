@@ -295,11 +295,18 @@ void FluxItem::releaseResources()
     // Wait for in-flight EngineStepJobs to complete
     QElapsedTimer waitTimer;
     waitTimer.start();
+    int lastLogMs = 0;
     while (m_inflightJobs.load(std::memory_order_acquire) > 0) {
         QThread::msleep(1);
-        if (waitTimer.elapsed() > 100) {
-            fprintf(stderr, "releaseResources: timeout waiting for %d inflight jobs\n",
-                    m_inflightJobs.load(std::memory_order_acquire));
+        int elapsed = waitTimer.elapsed();
+        if (elapsed - lastLogMs >= 100) {
+            lastLogMs = elapsed;
+            fprintf(stderr, "releaseResources: waiting for inflight jobs (%dms, %d remaining)\n",
+                    elapsed, m_inflightJobs.load(std::memory_order_acquire));
+        }
+        if (elapsed > 500) {
+            fprintf(stderr, "releaseResources: timeout after %dms, %d inflight jobs still pending — leaking GPU resources\n",
+                    elapsed, m_inflightJobs.load(std::memory_order_acquire));
             break;
         }
     }
