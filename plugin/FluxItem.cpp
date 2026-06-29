@@ -5,7 +5,6 @@
 #include <QSGImageNode>
 #include <QSGTexture>
 #include <QQuickWindow>
-#include <QScopeGuard>
 
 
 // ---- FluxItem ----
@@ -162,16 +161,6 @@ void FluxItem::initOurRhi()
         return;
     }
 
-    // Detect app exit early — before Qt destroys SG GL context
-    if (!m_appExiting.load()) {
-        auto *app = QCoreApplication::instance();
-        if (app) {
-            QObject::connect(app, &QCoreApplication::aboutToQuit, this, [this]() {
-                m_appExiting.store(true, std::memory_order_seq_cst);
-            }, Qt::DirectConnection);
-        }
-    }
-
     if (!window())
         return;
 
@@ -225,10 +214,11 @@ void FluxItem::initOurRhi()
 void FluxItem::onFrameTick()
 {
     if (m_diagStep < 5) return;
-    if (m_stopping.load(std::memory_order_acquire))
+    if (!m_running || !window())
         return;
-
-    if (!window() || !m_running)
+    if (!m_engine || !m_engine->isInitialized())
+        return;
+    if (!m_sharedCtx || !m_fallbackSurface)
         return;
 
     if (!m_elapsed.isValid())
@@ -241,10 +231,53 @@ void FluxItem::onFrameTick()
     if (dt > 0.1f)
         dt = 0.1f;
 
-    m_pendingDt = dt;
+    // Ensure GL context is on GUI thread before making current
+    if (m_sharedCtx->thread() != QThread::currentThread()) {
+        if (QOpenGLContext::currentContext() == m_sharedCtx)
+            m_sharedCtx->doneCurrent();
+        m_sharedCtx->moveToThread(QThread::currentThread());
+        m_fallbackSurface->moveToThread(QThread::currentThread());
+    }
+
+    if (!m_sharedCtx->makeCurrent(m_fallbackSurface.get()))
+        return;
+
+    m_engine->checkResize();
+
+    QRhiCommandBuffer *cb = nullptr;
+    if (m_ourRhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
+        m_sharedCtx->doneCurrent();
+        return;
+    }
+
+    m_engine->step(cb, dt);
+
+    if (m_engine->displayTex() && !m_readbackPending.load(std::memory_order_acquire)) {
+        m_readbackPending.store(true, std::memory_order_release);
+        int ds = m_engine->displaySize();
+        int px = ds * ds * 4;
+        auto *result = new QRhiReadbackResult();
+        QByteArray *outData = new QByteArray();
+        outData->resize(px);
+        result->completed = [this, result, outData, px]() {
+            if (result->data.size() >= px) {
+                memcpy(outData->data(), result->data.constData(), px);
+                QMutexLocker lock(&m_readbackMutex);
+                m_readbackData = *outData;
+            }
+            m_readbackPending.store(false, std::memory_order_release);
+            delete outData;
+            delete result;
+        };
+        QRhiResourceUpdateBatch *rub = m_ourRhi->nextResourceUpdateBatch();
+        rub->readBackTexture(QRhiReadbackDescription(m_engine->displayTex()), result);
+        cb->resourceUpdate(rub);
+    }
+
+    m_ourRhi->endOffscreenFrame();
+    m_sharedCtx->doneCurrent();
 
     update();
-    scheduleEngineStep();
 
     m_frameCount++;
     emit frameCountChanged(m_frameCount);
@@ -285,25 +318,9 @@ void FluxItem::initEngine()
     update();
 }
 
-void FluxItem::scheduleEngineStep()
-{
-    if (!m_ourRhi || !m_engine || !m_engine->isInitialized() || !m_sharedCtx)
-        return;
-    if (m_stopping.load(std::memory_order_acquire))
-        return;
-
-    m_inflightJobs.fetch_add(1, std::memory_order_relaxed);
-    auto *job = new EngineStepJob(m_engine.get(), m_ourRhi.get(),
-                                  m_sharedCtx, m_fallbackSurface.get(),
-                                  this, m_pendingDt);
-    window()->scheduleRenderJob(job, QQuickWindow::AfterSwapStage);
-}
-
 QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
     if (m_diagStep < 2) return nullptr;
-    if (m_stopping.load(std::memory_order_acquire))
-        return oldNode;
 
     if (!window())
         return nullptr;
@@ -360,60 +377,26 @@ QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 void FluxItem::releaseResources()
 {
     m_running = false;
-    m_stopping.store(true, std::memory_order_seq_cst);
 
-    // Wait for in-flight EngineStepJobs to complete
-    QElapsedTimer waitTimer;
-    waitTimer.start();
-    int lastLogMs = 0;
-    while (m_inflightJobs.load(std::memory_order_acquire) > 0) {
-        QThread::msleep(1);
-        int elapsed = waitTimer.elapsed();
-        if (elapsed - lastLogMs >= 100) {
-            lastLogMs = elapsed;
-            fprintf(stderr, "releaseResources: waiting for inflight jobs (%dms, %d remaining)\n",
-                    elapsed, m_inflightJobs.load(std::memory_order_acquire));
+    // Engine and QRhi were created on GUI thread — cleanup here.
+    // makeCurrent may fail if window is being torn down, in which case
+    // we leak GPU resources (safe — OS reclaims on process exit).
+
+    if (!window() && m_sharedCtx && m_fallbackSurface) {
+        m_engine.release();
+        m_ourRhi.release();
+    } else if (m_sharedCtx && m_fallbackSurface) {
+        if (m_sharedCtx->thread() != QThread::currentThread()) {
+            m_sharedCtx->moveToThread(QThread::currentThread());
+            m_fallbackSurface->moveToThread(QThread::currentThread());
         }
-    }
-
-    // Window might be gone (render loop stopped), can't safely touch GL
-    if (!window()) {
-        fprintf(stderr, "releaseResources: window gone, leaking GPU resources\n");
-        if (m_sharedCtx && m_fallbackSurface) {
-            m_engine.release();
-            m_ourRhi.release();
-        } else {
-            m_engine.reset();
-            m_ourRhi.reset();
-        }
-        m_fallbackSurface.reset();
-        if (m_sharedCtx) { delete m_sharedCtx; m_sharedCtx = nullptr; }
-        return;
-    }
-
-    if (m_sharedCtx && m_fallbackSurface) {
-        bool contextOnOurThread = (m_sharedCtx->thread() == QThread::currentThread());
-
-        if (!contextOnOurThread) {
-            // Context still on render thread — can't safely makeCurrent here.
-            // EngineStepJob guard should have moved it back, but in case of
-            // timeout or early exit, just leak GPU resources.
-            fprintf(stderr, "releaseResources: context on render thread (%p), leaking GPU resources\n",
-                    (void*)m_sharedCtx->thread());
-            m_engine.release();
-            m_ourRhi.release();
-        } else if (m_appExiting.load(std::memory_order_acquire)) {
-            fprintf(stderr, "releaseResources: app exiting, leaking GPU resources\n");
-            m_engine.release();
-            m_ourRhi.release();
-        } else if (!m_sharedCtx->makeCurrent(m_fallbackSurface.get())) {
-            fprintf(stderr, "releaseResources: cannot makeCurrent, leaking GPU resources\n");
-            m_engine.release();
-            m_ourRhi.release();
-        } else {
+        if (m_sharedCtx->makeCurrent(m_fallbackSurface.get())) {
             m_engine.reset();
             m_ourRhi.reset();
             m_sharedCtx->doneCurrent();
+        } else {
+            m_engine.release();
+            m_ourRhi.release();
         }
     } else {
         m_engine.reset();
@@ -421,11 +404,10 @@ void FluxItem::releaseResources()
     }
     m_fallbackSurface.reset();
     if (m_sharedCtx) {
-        if (m_sharedCtx->thread() == QThread::currentThread()) {
+        if (m_sharedCtx->thread() == QThread::currentThread())
             delete m_sharedCtx;
-        } else {
+        else
             fprintf(stderr, "releaseResources: leaking sharedCtx (wrong thread)\n");
-        }
         m_sharedCtx = nullptr;
     }
 }
@@ -453,89 +435,4 @@ void FluxItem::setReadbackPending(bool p)
 int FluxItem::computeDisplaySize(int w, int h)
 {
     return std::min(w, h);
-}
-
-// ---- EngineStepJob ----
-
-void EngineStepJob::run()
-{
-    auto guard = qScopeGuard([this] {
-        if (m_sharedCtx && QOpenGLContext::currentContext() == m_sharedCtx)
-            m_sharedCtx->doneCurrent();
-        // Move context back to GUI thread so releaseResources() is safe
-        if (m_sharedCtx && m_sharedCtx->thread() != m_item->thread()) {
-            m_sharedCtx->moveToThread(m_item->thread());
-        }
-        if (m_fallbackSurface && m_fallbackSurface->thread() != m_item->thread()) {
-            m_fallbackSurface->moveToThread(m_item->thread());
-        }
-        m_item->decrementInflight();
-    });
-    if (!m_engine || !m_ourRhi || !m_sharedCtx || !m_fallbackSurface)
-        return;
-    if (m_item->isStopping())
-        return;
-
-    // Guard against app exit or window destruction (Qt 6.11 ordering bug:
-    // GL context may be destroyed while jobs are still queued)
-    if (m_item->appExiting())
-        return;
-    if (!m_item->window())
-        return;
-
-    if (m_sharedCtx->thread() != QThread::currentThread()) {
-        if (QOpenGLContext::currentContext() == m_sharedCtx)
-            m_sharedCtx->doneCurrent();
-        m_sharedCtx->moveToThread(QThread::currentThread());
-        m_fallbackSurface->moveToThread(QThread::currentThread());
-    }
-
-    // Process pending resize before frame (QRhi resource ops outside frame)
-    m_engine->checkResize();
-
-    QRhiCommandBuffer *cb = nullptr;
-    if (m_ourRhi->beginOffscreenFrame(&cb) != QRhi::FrameOpSuccess) {
-        fprintf(stderr, "  STUCK: beginOffscreenFrame FAILED at engine frame %d\n", m_engine->frameCount());
-        return;
-    }
-
-    // Double-check stopping after beginOffscreenFrame — releaseResources
-    // might have been called while we were waiting
-    if (m_item->isStopping()) {
-        m_ourRhi->endOffscreenFrame();
-        return;
-    }
-
-    int frame = m_engine->frameCount();
-    if (frame % 60 == 0)
-        fprintf(stderr, "  STEP frame=%d\n", frame);
-
-    m_engine->step(cb, m_dt);
-
-    if (m_engine->displayTex() && !m_item->hasPendingReadback()) {
-        m_item->setReadbackPending(true);
-        int ds = m_engine->displaySize();
-        int px = ds * ds * 4;
-        auto *result = new QRhiReadbackResult();
-        QByteArray *outData = new QByteArray();
-        outData->resize(px);
-        result->completed = [item = m_item, result, outData, px, frame]() {
-            if (result->data.size() >= px) {
-                memcpy(outData->data(), result->data.constData(), px);
-                item->storeReadback(*outData);
-            } else {
-                fprintf(stderr, "  STUCK: readback data too small at frame %d (%lld < %d)\n", frame, (long long)result->data.size(), px);
-            }
-            item->setReadbackPending(false);
-            delete outData;
-            delete result;
-        };
-        QRhiResourceUpdateBatch *rub = m_ourRhi->nextResourceUpdateBatch();
-        rub->readBackTexture(QRhiReadbackDescription(m_engine->displayTex()), result);
-        cb->resourceUpdate(rub);
-    } else if (m_item->hasPendingReadback() && frame % 60 == 0) {
-        fprintf(stderr, "  STUCK: readback still pending at frame %d\n", frame);
-    }
-
-    m_ourRhi->endOffscreenFrame();
 }

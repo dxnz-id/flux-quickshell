@@ -7,34 +7,13 @@
 #include <QElapsedTimer>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
-#include <QRunnable>
-#include <QThread>
 #include <QMutex>
-#include <QOpenGLFunctions>
-#include <QCoreApplication>
+#include <QPointer>
 #include <memory>
 #include <atomic>
 
 class FluxEngine;
 class FluxItem;
-class QTimer;
-
-class EngineStepJob : public QRunnable {
-public:
-    EngineStepJob(FluxEngine *engine, QRhi *ourRhi,
-                  QOpenGLContext *sharedCtx, QOffscreenSurface *fallbackSurface,
-                  FluxItem *item, float dt)
-        : m_engine(engine), m_ourRhi(ourRhi), m_sharedCtx(sharedCtx),
-          m_fallbackSurface(fallbackSurface), m_item(item), m_dt(dt) {}
-    void run() override;
-private:
-    FluxEngine *m_engine;
-    QRhi *m_ourRhi;
-    QOpenGLContext *m_sharedCtx;
-    QOffscreenSurface *m_fallbackSurface;
-    FluxItem *m_item;
-    float m_dt;
-};
 
 class FluxItem : public QQuickItem {
     Q_OBJECT
@@ -94,9 +73,6 @@ public:
     void storeReadback(const QByteArray &data);
     bool hasPendingReadback() const;
     void setReadbackPending(bool p);
-    void decrementInflight() { m_inflightJobs.fetch_sub(1, std::memory_order_release); }
-    bool isStopping() const { return m_stopping.load(std::memory_order_acquire); }
-    bool appExiting() const { return m_appExiting.load(std::memory_order_acquire); }
 
 signals:
     void runningChanged();
@@ -123,7 +99,6 @@ protected:
 private:
     void initOurRhi();
     void initEngine();
-    void scheduleEngineStep();
     int computeDisplaySize(int w, int h);
 
 public slots:
@@ -134,7 +109,6 @@ private:
     bool m_running = false;
     int m_frameCount = 0;
     int m_simSize = 128;
-    float m_pendingDt = 0.016f;
     int m_debugMode = 5;
 
     int m_colorMode = 0;
@@ -163,9 +137,6 @@ private:
     // Resize tracking
     int m_lastItemW = 0, m_lastItemH = 0;
 
-    std::atomic<int> m_inflightJobs{0};
-    std::atomic<bool> m_stopping{false};
-    std::atomic<bool> m_appExiting{false};
     int m_diagStep = 1;
     bool m_initQueued = false;
     bool m_engineInitQueued = false;
