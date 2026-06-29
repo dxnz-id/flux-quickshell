@@ -140,6 +140,16 @@ void FluxItem::initOurRhi()
     if (m_ourRhi)
         return;
 
+    // Detect app exit early — before Qt destroys SG GL context
+    if (!m_appExiting.load()) {
+        auto *app = QCoreApplication::instance();
+        if (app) {
+            QObject::connect(app, &QCoreApplication::aboutToQuit, this, [this]() {
+                m_appExiting.store(true, std::memory_order_seq_cst);
+            }, Qt::DirectConnection);
+        }
+    }
+
     if (!window())
         return;
 
@@ -314,7 +324,16 @@ void FluxItem::releaseResources()
     if (m_sharedCtx && m_fallbackSurface) {
         if (m_sharedCtx->thread() != QThread::currentThread())
             m_sharedCtx->moveToThread(QThread::currentThread());
-        if (!m_sharedCtx->makeCurrent(m_fallbackSurface.get())) {
+
+        // On app exit (aboutToQuit), Qt 6.11 destroys SG GL context before
+        // releaseResources(). makeCurrent may succeed (context handle alive)
+        // but share parent is gone → GPU resource destructors crash.
+        // Just leak everything — OS reclaims on process exit.
+        if (m_appExiting.load(std::memory_order_acquire)) {
+            fprintf(stderr, "releaseResources: app exiting, leaking GPU resources\n");
+            m_engine.release();
+            m_ourRhi.release();
+        } else if (!m_sharedCtx->makeCurrent(m_fallbackSurface.get())) {
             fprintf(stderr, "releaseResources: cannot makeCurrent, leaking GPU resources\n");
             m_engine.release();
             m_ourRhi.release();
@@ -369,6 +388,13 @@ void EngineStepJob::run()
     if (!m_engine || !m_ourRhi || !m_sharedCtx || !m_fallbackSurface)
         return;
     if (m_item->isStopping())
+        return;
+
+    // Guard against app exit or window destruction (Qt 6.11 ordering bug:
+    // GL context may be destroyed while jobs are still queued)
+    if (m_item->appExiting())
+        return;
+    if (!m_item->window())
         return;
 
     if (m_sharedCtx->thread() != QThread::currentThread()) {

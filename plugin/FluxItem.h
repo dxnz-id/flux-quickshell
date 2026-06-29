@@ -11,6 +11,7 @@
 #include <QThread>
 #include <QMutex>
 #include <QOpenGLFunctions>
+#include <QCoreApplication>
 #include <memory>
 #include <atomic>
 
@@ -92,6 +93,7 @@ public:
     void setReadbackPending(bool p);
     void decrementInflight() { m_inflightJobs.fetch_sub(1, std::memory_order_release); }
     bool isStopping() const { return m_stopping.load(std::memory_order_acquire); }
+    bool appExiting() const { return m_appExiting.load(std::memory_order_acquire); }
 
 signals:
     void runningChanged();
@@ -158,4 +160,5 @@ private:
 
     std::atomic<int> m_inflightJobs{0};
     std::atomic<bool> m_stopping{false};
+    std::atomic<bool> m_appExiting{false};
 };
