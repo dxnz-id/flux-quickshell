@@ -91,12 +91,6 @@ Full instructions: [docs/build.md](docs/build.md)
 - [outfoxxed/quickshell](https://github.com/outfoxxed/quickshell) — The
   shell framework this plugin is built for.
 
-## Support
-
 <a href="https://www.ko-fi.com/dxnzid">
 <img src="https://cdn.ko-fi.com/cdn/kofi3.png?v=3" width="160" alt="ko-fi" />
 </a>
-
-## License
-
-GPL-3.0
