@@ -10,6 +10,10 @@ Wayland compositors.
 > Inspired by [sandydoo/flux](https://github.com/sandydoo/flux). Thank you
 > for the beautiful work.
 
+<a href="https://www.ko-fi.com/dxnzid">
+<img src="https://cdn.ko-fi.com/cdn/kofi3.png?v=3" width="160" alt="ko-fi" />
+</a>
+
 ---
 
 ## Quick Start
@@ -90,7 +94,3 @@ Full instructions: [docs/build.md](docs/build.md)
   inspired this. Thank you for making it open source.
 - [outfoxxed/quickshell](https://github.com/outfoxxed/quickshell) — The
   shell framework this plugin is built for.
-
-<a href="https://www.ko-fi.com/dxnzid">
-<img src="https://cdn.ko-fi.com/cdn/kofi3.png?v=3" width="160" alt="ko-fi" />
-</a>
