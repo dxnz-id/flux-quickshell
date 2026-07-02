@@ -14,10 +14,8 @@ struct FluidUniforms {
     float r_beta;
     float center_factor;
     float stencil_factor;
-    float noise_multiplier;
-    float _pad;
 };
-static_assert(sizeof(FluidUniforms) == 32, "FluidUniforms must be 32 bytes");
+static_assert(sizeof(FluidUniforms) == 24, "FluidUniforms must be 24 bytes");
 
 
 struct GpuNoiseParams {
@@ -149,6 +147,12 @@ void FluxEngine::releaseResources()
     for (auto &p : m_passPressure) p.pipeline.reset();
     for (auto &a : m_passSubtract) for (auto &p : a) p.pipeline.reset();
     m_passDisplay.pipeline.reset();
+    m_passDebug.pipeline.reset();
+    m_passDebug.srb.reset();
+    m_lineEndpointPipeline.reset();
+    m_lineFrameEndpointSrb.reset();
+    m_lineColorTex.reset();
+    m_lineColorSampler.reset();
 
     m_rpDescRGBA16F.reset();
     m_rpDescR32F.reset();
@@ -282,7 +286,7 @@ void FluxEngine::updateUniforms()
     float dt = m_fluidTimestep;
     float centerFactor = 1.0f / (m_viscosity * dt);
     float stencilFactor = 1.0f / (4.0f + centerFactor);
-    FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor, 0.0f, 0.0f };
+    FluidUniforms fu = { dt, m_dissipation, -1.0f, 0.25f, centerFactor, stencilFactor };
 
     QRhiResourceUpdateBatch *ub = m_rhi->nextResourceUpdateBatch();
     ub->uploadStaticBuffer(m_fluidUniformBuf.get(), QByteArray((const char*)&fu, sizeof(fu)));

@@ -6,7 +6,7 @@ Item {
     property bool running: true
     property alias frameCount: sim.frameCount
     property alias debugMode: sim.debugMode
-    property alias colorMode: sim.colorMode
+    property alias colorMode: sim.colorPreset
     property alias viscosity: sim.viscosity
     property alias noiseMultiplier: sim.noiseMultiplier
     property alias timestep: sim.timestep

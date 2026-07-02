@@ -363,10 +363,10 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **DRY mouse handlers** — `onPressed`/`onPositionChanged` now call `showToolbar()`.
 - [x] **Busy-wait 100ms→500ms** — `releaseResources()` logs progress every 100ms, waits up to 500ms before giving up.
 - [x] **Qt 6.11 exit crash mitigated** — `QCoreApplication::aboutToQuit` sets `m_appExiting` flag. `releaseResources()` leaks GPU resources (safe, OS reclaims) instead of destructing them with invalid GL context. `EngineStepJob::run()` exits early if `appExiting()` or `window()` null.
-- [x] **Configurable simulation parameters via QML** — 10 parameters exposed via Q_PROPERTY (colorMode, viscosity, noiseMultiplier, timestep, dissipation, pressureIterations, lineVariance, lineWidthMultiplier, zoom, msaaSampleCount). `m_fluidUniformBuf` revived and bound at `binding=8` to all solver shaders. `GpuNoiseParams.noiseMultiplier` replaces hardcoded NOISE_MULT.
-- [x] **MSAA 4x configurable** — `msaaSampleCount` Q_PROPERTY (1/2/4, default 4). `createDisplayPass()` creates MSAA + resolve textures. `recreateLineGraphicsPipelines()` ensures pipelines match current MSAA sample count.
+- [x] **Configurable simulation parameters via QML** — 9 parameters exposed via Q_PROPERTY (colorMode, viscosity, noiseMultiplier, timestep, dissipation, pressureIterations, lineVariance, lineWidthMultiplier, zoom). `m_fluidUniformBuf` revived and bound at `binding=8` to all solver shaders. `GpuNoiseParams.noiseMultiplier` replaces hardcoded NOISE_MULT.
+
 - [x] **RGBA32F state texture** — `m_lineStateTex` format RGBA16F → RGBA32F. Compute shader `layout(rgba32f)` must match C++ `QRhiTexture::RGBA32F` — mismatch silently corrupts state data.
-- [x] **Config.qml bridge** — `fluid {}` section added to dots-hyprfork Config.qml with all 10 parameters.
+- [x] **Config.qml bridge** — `fluid {}` section added to dots-hyprfork Config.qml with all 9 parameters.
 - [x] **Large dead code cleanup** — removed Direction/PushConstants structs, 4 unused getters, 6 unused #include, 10 stale .qsb dari git, `*.qsb` gitignored. Deleted orphan QML (`test_fluid.qml`, `compare-main.qml`, `line-test.qml`, `quickshell-test/*`, `shell.qml`, `FluxSimulation.qml`), root `shaders/`, `qml/shaders` symlink, `plugin/compiled/`.
 - [x] **Sandbox pure black background** — `#0d0d1a` → `#000`
 - [x] **QTimer → QML Timer** — `onFrameTick()` pindah ke public slots, C++ QTimer dihapus. FluxBackground, test_fluid, shell.qml pake Timer 16ms di QML.
@@ -411,7 +411,6 @@ Semua simulation parameter bisa di-set via QML properties pada `FluxItem` (di-ex
 | `lineVariance` | float | 0.55 | 0.0-2.0 | `LineUniforms.line_variance` | Seberapa wiggly garis flow |
 | `lineWidthMultiplier` | float | 1.0 | 0.1-5.0 | `LineUniforms.line_width` | Scale ketebalan garis |
 | `zoom` | float | 1.6 | 0.5-5.0 | `LineUniforms.zoom` | Zoom level tampilan |
-| `msaaSampleCount` | int | 4 | 1,2,4 | C++ `m_rpDescRGBA8` | MSAA sample count untuk line rendering |
 
 ### Cara pakai via QML
 
@@ -438,7 +437,6 @@ property JsonObject fluid: JsonObject {
     property real lineVariance: 0.55
     property real lineWidthMultiplier: 1.0
     property real zoom: 1.6
-    property int msaaSampleCount: 4
 }
 ```
 
@@ -901,7 +899,7 @@ ivec2 p0 = ivec2(base % texW, base / texW);
 ## Session Summary (2026-06-27) — MSAA + RGBA32F + Config Bridge
 
 ### Changes
-1. **MSAA 4x configurable** (`FluxEngine.cpp/h`): `createDisplayPass()` creates MSAA render target + resolve texture when `m_msaaSamples > 1`. `msaaSampleCount` Q_PROPERTY (1/2/4, default 4).
+1. **RGBA32F state texture**: `m_lineStateTex` format RGBA16F → RGBA32F. Compute shader `layout(rgba32f)` must match C++ `QRhiTexture::RGBA32F` — format mismatch silently corrupts state data.
 2. **`recreateLineGraphicsPipelines()`** extracted from `createLinePipelines()` — called from init and `checkResize()` to keep line graphics pipelines matching current `m_rpDescRGBA8` (MSAA sample count).
 3. **RGBA32F state texture**: `m_lineStateTex` format RGBA16F → RGBA32F. `initLineState()` data `qfloat16*` → `float*`. Compute shader `layout(rgba16f)` → `layout(rgba32f)` — format mismatch between C++ texture and GLSL imageStore was silently corrupting state data.
 4. **AA reverted to 1px**: `smoothstep(0.5 - edgeWidth, 0.5, xOffset)` — matching reference `line.wgsl` exactly (no `2.0*` multiplier).

@@ -9,7 +9,6 @@ layout(binding = 8, std140) uniform FluidUniforms {
     float uRbeta;
     float uCenterFactor;
     float uStencilFactor;
-    float uNoiseMultiplier;
 } u;
 
 layout(location = 0) out vec4 fragColor;
