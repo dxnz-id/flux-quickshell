@@ -477,33 +477,13 @@ void FluxEngine::createGraphicsPipelines()
 void FluxEngine::createDisplayPass()
 {
     QSize ds = m_displaySize;
-    int ms = m_msaaSamples;
 
-    if (ms > 1) {
-        // MSAA: MSAA render target + resolve texture
-        m_displayTexMS.reset(m_rhi->newTexture(
-            QRhiTexture::RGBA8, ds, ms, QRhiTexture::RenderTarget));
-        m_displayTexMS->setName("displayTexMS");
-        m_displayTexMS->create();
-
-        m_displayTex.reset(m_rhi->newTexture(
-            QRhiTexture::RGBA8, ds, 1,
-            QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
-        m_displayTex->setName("displayTexResolve");
-        m_displayTex->create();
-
-        QRhiColorAttachment colorAtt(m_displayTexMS.get());
-        colorAtt.setResolveTexture(m_displayTex.get());
-        m_displayRT.reset(m_rhi->newTextureRenderTarget({colorAtt}));
-    } else {
-        // No MSAA: single render target (existing behavior)
-        m_displayTexMS.reset();
-        m_displayTex.reset(m_rhi->newTexture(
-            QRhiTexture::RGBA8, ds, 1, QRhiTexture::RenderTarget));
-        m_displayTex->setName("displayTex");
-        m_displayTex->create();
-        m_displayRT.reset(m_rhi->newTextureRenderTarget({m_displayTex.get()}));
-    }
+    m_displayTex.reset(m_rhi->newTexture(
+        QRhiTexture::RGBA8, ds, 1,
+        QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
+    m_displayTex->setName("displayTex");
+    m_displayTex->create();
+    m_displayRT.reset(m_rhi->newTextureRenderTarget({m_displayTex.get()}));
 
     m_rpDescRGBA8.reset(m_displayRT->newCompatibleRenderPassDescriptor());
     m_rpDescRGBA8->setName("rpRGBA8");
@@ -538,7 +518,7 @@ void FluxEngine::createDisplayPass()
     makeDisplayPipeline("display_frag", m_passDisplay);
     makeDisplayPipeline("display_debug", m_passDebug);
 
-    fprintf(stderr, "  Display passes created (%dx%d RGBA8, MSAA=%dx)\n", ds.width(), ds.height(), ms);
+    fprintf(stderr, "  Display passes created (%dx%d RGBA8)\n", ds.width(), ds.height());
 }
 
 static constexpr int PASSES_PER_FRAME = 32;
@@ -1111,7 +1091,6 @@ void FluxEngine::checkResize()
     if (!m_resizeNeeded) return;
 
     // Release old display + line resources
-    m_displayTexMS.reset();
     m_displayTex.reset();
     m_displayRT.reset();
     m_lineStateTex[0].reset();
@@ -1141,7 +1120,7 @@ void FluxEngine::checkResize()
     initLineState();
     initBasepoints();
 
-    // Recreate line graphics pipelines with current m_rpDescRGBA8 (MSAA may have changed)
+    // Recreate line graphics pipelines with current m_rpDescRGBA8
     recreateLineGraphicsPipelines();
 
     // Reset velocity + pressure fields so lines fade in fresh (like first open)

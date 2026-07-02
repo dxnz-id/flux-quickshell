@@ -32,7 +32,6 @@ class FluxItem : public QQuickItem {
     Q_PROPERTY(float lineVariance READ lineVariance WRITE setLineVariance NOTIFY lineVarianceChanged)
     Q_PROPERTY(float lineWidthMultiplier READ lineWidthMultiplier WRITE setLineWidthMultiplier NOTIFY lineWidthMultiplierChanged)
     Q_PROPERTY(float zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
-    Q_PROPERTY(int msaaSampleCount READ msaaSampleCount WRITE setMsaaSampleCount NOTIFY msaaSampleCountChanged)
     Q_PROPERTY(int diagStep READ diagStep WRITE setDiagStep NOTIFY diagStepChanged)
 public:
     explicit FluxItem(QQuickItem *parent = nullptr);
@@ -65,8 +64,6 @@ public:
     float zoom() const { return m_zoom; }
     void setZoom(float v);
 
-    int msaaSampleCount() const { return m_msaaSamples; }
-    void setMsaaSampleCount(int v);
     int diagStep() const { return m_diagStep; }
     void setDiagStep(int v);
 
@@ -88,7 +85,6 @@ signals:
     void lineVarianceChanged();
     void lineWidthMultiplierChanged();
     void zoomChanged();
-    void msaaSampleCountChanged();
     void diagStepChanged();
 
 protected:
@@ -120,7 +116,6 @@ private:
     float m_lineVariance = 0.55f;
     float m_lineWidthMultiplier = 1.0f;
     float m_zoom = 1.6f;
-    int m_msaaSamples = 4;
 
     std::unique_ptr<QOffscreenSurface> m_fallbackSurface;
     std::unique_ptr<QRhi> m_ourRhi;

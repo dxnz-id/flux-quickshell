@@ -21,8 +21,6 @@ public:
 
     QRhiTexture *displayTex() const { return m_displayTex.get(); }
     QSize displaySize() const { return m_displaySize; }
-    void setMsaaSamples(int s) { if (m_msaaSamples != s) { m_msaaSamples = s; m_resizeNeeded = true; } }
-    int msaaSamples() const { return m_msaaSamples; }
     QRhiSampler *nearestSampler() const { return m_nearestSampler.get(); }
     QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
@@ -93,11 +91,9 @@ private:
 
     // Display textures (512x512 RGBA8 by default)
     QSize m_displaySize = {512, 512};
-    std::unique_ptr<QRhiTexture> m_displayTex;       // resolve target (MSAA) or direct RT (no MSAA)
-    std::unique_ptr<QRhiTexture> m_displayTexMS;     // MSAA render target (null when msaaSamples==1)
+    std::unique_ptr<QRhiTexture> m_displayTex;
     std::unique_ptr<QRhiTextureRenderTarget> m_displayRT;
     std::unique_ptr<QRhiRenderPassDescriptor> m_rpDescRGBA8;
-    int m_msaaSamples = 4;
     PassPipeline m_passDisplay;      // heatmap (velocity → color)
     PassPipeline m_passDebug;        // bias+contrast (raw texture)
 

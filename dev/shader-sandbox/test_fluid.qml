@@ -20,7 +20,6 @@ Window {
         simSize: root.simSize
         running: true
         debugMode: modeBar.selected
-        msaaSampleCount: 4
     }
 
     Timer {

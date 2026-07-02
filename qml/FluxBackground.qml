@@ -15,7 +15,6 @@ Item {
     property alias lineVariance: sim.lineVariance
     property alias lineWidthMultiplier: sim.lineWidthMultiplier
     property alias zoom: sim.zoom
-    property alias msaaSampleCount: sim.msaaSampleCount
 
     FluxItem {
         id: sim

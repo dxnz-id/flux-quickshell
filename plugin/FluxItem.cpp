@@ -125,15 +125,6 @@ void FluxItem::setZoom(float v)
     emit zoomChanged();
 }
 
-void FluxItem::setMsaaSampleCount(int v)
-{
-    if (m_msaaSamples == v) return;
-    if (v != 1 && v != 2 && v != 4) return;
-    m_msaaSamples = v;
-    if (m_engine) m_engine->setMsaaSamples(v);
-    emit msaaSampleCountChanged();
-}
-
 void FluxItem::setDiagStep(int v)
 {
     if (m_diagStep == v) return;
@@ -312,7 +303,6 @@ void FluxItem::initEngine()
     m_engine->setLineVariance(m_lineVariance);
     m_engine->setLineWidthMultiplier(m_lineWidthMultiplier);
     m_engine->setZoom(m_zoom);
-    m_engine->setMsaaSamples(m_msaaSamples);
 
     fprintf(stderr, "  engine initialized on GUI thread\n");
     update();
