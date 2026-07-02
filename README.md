@@ -54,9 +54,8 @@ Full instructions: [docs/build.md](docs/build.md)
 
 I've always been fascinated by the macOS Drift screensaver — the way colors
 drift and bloom across the screen like ink in water. [sandydoo/flux](https://github.com/sandydoo/flux)
-captured that magic beautifully for the web. This is my take on it: a native
-screensaver for Hyprland lockscreens, built with C++ and OpenGL, running
-at 60 FPS with no browser overhead.
+captured that magic beautifully. This is my take on it: a screensaver for
+Hyprland lockscreens, built as a Quickshell plugin with C++ and OpenGL.
 
 ## Features
 
