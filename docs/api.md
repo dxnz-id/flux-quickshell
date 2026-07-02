@@ -80,7 +80,7 @@ differs.
 ### Line Rendering
 
 | Property | Type | Default | Description |
-|---|---|---|---|---|
+|---|---|---|---|
 | `colorPreset` | int | `0` | Line color scheme. See [Color Presets](#color-presets) below. Range: 0-5 |
 | `lineVariance` | float | `0.55` | Per-line randomness. Higher = more variation between lines. Range: 0.0-2.0 |
 | `lineWidthMultiplier` | float | `1.0` | Line thickness multiplier. Range: 0.1-5.0 |

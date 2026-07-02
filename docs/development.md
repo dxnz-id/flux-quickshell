@@ -107,7 +107,7 @@ When the engine loads a shader, it searches in this order (first match wins):
 ## Diagnostic Levels (diagStep)
 
 | Value | Behavior |
-|---|---|---|
+|---|---|
 | 0 | `updatePaintNode()` returns nothing — blank screen |
 | 1 | Same as 0 (reserved, behaves identically) |
 | 2 | GL context created, engine not initialized |
