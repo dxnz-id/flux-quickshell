@@ -20,6 +20,7 @@ Window {
         simSize: root.simSize
         running: true
         debugMode: modeBar.selected
+        diagStep: 5
     }
 
     Timer {
