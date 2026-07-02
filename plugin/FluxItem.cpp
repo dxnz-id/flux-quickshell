@@ -332,9 +332,8 @@ QSGNode *FluxItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     int w = int(width());
     int h = int(height());
     if (w != m_lastItemW || h != m_lastItemH) {
-        QSize ds = computeDisplaySize(w, h);
         if (m_engine)
-            m_engine->resizeDisplay(w, h, ds);
+            m_engine->resizeDisplay(w, h, QSize(w, h));
         m_lastItemW = w;
         m_lastItemH = h;
     }
@@ -402,27 +401,4 @@ void FluxItem::releaseResources()
     }
 }
 
-void FluxItem::itemChange(ItemChange, const ItemChangeData &)
-{
-}
 
-void FluxItem::storeReadback(const QByteArray &data)
-{
-    QMutexLocker lock(&m_readbackMutex);
-    m_readbackData = data;
-}
-
-bool FluxItem::hasPendingReadback() const
-{
-    return m_readbackPending;
-}
-
-void FluxItem::setReadbackPending(bool p)
-{
-    m_readbackPending = p;
-}
-
-QSize FluxItem::computeDisplaySize(int w, int h)
-{
-    return QSize(w, h);
-}

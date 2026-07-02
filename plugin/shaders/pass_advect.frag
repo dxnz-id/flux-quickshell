@@ -19,7 +19,7 @@ void main() {
 
     vec2 velocity = texelFetch(velocityTex, pos, 0).xy;
     vec2 samplePos = vec2(pos) + 0.5;
-    float direction = 1.0f;
+    float direction = 1.0;
     vec2 advectedPos = (samplePos - direction * u.uTimestep * velocity) / vec2(size);
     float decay = 1.0 + u.uDissipation * u.uTimestep;
     vec2 newVel = textureLod(velocityTex, advectedPos, 0.0).xy / decay;

@@ -11,7 +11,6 @@ qt_add_executable(shader_sandbox main.cpp)
 target_link_libraries(shader_sandbox PRIVATE Qt6::Quick Qt6::Qml)
 
 # Copy QML to build (exclude the shaders symlink — handled separately below)
-file(COPY ${CMAKE_SOURCE_DIR}/main.qml DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${CMAKE_SOURCE_DIR}/test_fluid.qml DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${CMAKE_SOURCE_DIR}/../../qml/ DESTINATION ${CMAKE_BINARY_DIR}
      PATTERN "shaders" EXCLUDE)

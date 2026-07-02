@@ -95,7 +95,7 @@ flux-quickshell/
 
 ## Arsitektur
 
-- **Plugin**: C++ QML module di `plugin/`, build via CMake. Output: `libfluidsim.so` + `libfluidsimplugin.so`.
+- **Plugin**: C++ QML module di `plugin/`, build via CMake. Output: `libfluxengine.so` + `libfluxengineplugin.so`.
 - **Rendering**: Qt RHI, backend OpenGL 4.6 (default di sistem target, bukan Vulkan).
 - **Shader compile**: `qsb --glsl "440"` (bukan `--qt6`), karena ESSL 100 output tidak support `texelFetch`/`textureSize`.
 - **Engine (C++)** `FluxEngine`: Semua pipeline solver (advection, diffusion, pressure, noise) via QRhi draw commands.
@@ -938,7 +938,7 @@ ivec2 p0 = ivec2(base % texW, base / texW);
 ### Changes
 1. **FrameAnimation → QML Timer**: FrameAnimation tidak trigger di sandbox/quickshell (butuh animation driver aktif). Ganti dengan `Timer { interval: 16 }` di QML level. `onFrameTick()` pindah dari `private slots` ke `public slots` agar callable dari QML JavaScript. Semua QTimer-related code dihapus dari `FluxItem`.
 2. **Opaque black display clear color**: `QColor(0,0,0,0)` → `QColor(0,0,0,255)` di `stepLines()` render pass. Area tanpa garis sekarang opaque black, window background (`#111`) tidak tembus.
-3. **Plugin rebuild**: Opaque black fix perlu rebuild plugin library (`plugin/build/libfluidsimplugin.so`) — sandbox link langsung ke source dan sudah rebuild, tapi quickshell widget load .so dan perlu rebuild terpisah.
+3. **Plugin rebuild**: Opaque black fix perlu rebuild plugin library (`plugin/build/libfluxengineplugin.so`) — sandbox link langsung ke source dan sudah rebuild, tapi quickshell widget load .so dan perlu rebuild terpisah.
 
 ### Resolved Issues
 - **Window background tembus**: Display pass clear color `(0,0,0,0)` + `QSGImageNode` alpha blending → window `#111` terlihat. Fix: opaque black clear color `(0,0,0,255)` + additive blend → alpha=255 di semua pixel.

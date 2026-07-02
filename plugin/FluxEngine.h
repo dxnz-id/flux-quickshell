@@ -14,15 +14,10 @@ public:
     void step(QRhiCommandBuffer *cb, float dt);
     void releaseResources();
 
-    QRhi *rhi() const { return m_rhi; }
-    int frameCount() const { return m_frameCount; }
-    int fluidSize() const { return m_fluidSize; }
     bool isInitialized() const { return m_initialized; }
 
     QRhiTexture *displayTex() const { return m_displayTex.get(); }
     QSize displaySize() const { return m_displaySize; }
-    QRhiSampler *nearestSampler() const { return m_nearestSampler.get(); }
-    QRhiBuffer *quadVertexBuffer() const { return m_quadVertexBuf.get(); }
 
     void setDebugMode(int mode) { m_debugMode = mode; }
 
@@ -70,7 +65,6 @@ private:
 
     // Full-screen quad rendering
     std::unique_ptr<QRhiBuffer> m_quadVertexBuf;
-    QShader m_quadVertexShader;
 
     // Per-pass graphics pipelines (fragment shader based)
     PassPipeline m_passNoise;

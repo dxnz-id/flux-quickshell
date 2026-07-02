@@ -8,7 +8,6 @@
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QMutex>
-#include <QPointer>
 #include <memory>
 #include <atomic>
 
@@ -67,9 +66,7 @@ public:
     int diagStep() const { return m_diagStep; }
     void setDiagStep(int v);
 
-    void storeReadback(const QByteArray &data);
-    bool hasPendingReadback() const;
-    void setReadbackPending(bool p);
+
 
 signals:
     void runningChanged();
@@ -90,12 +87,10 @@ signals:
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
     void releaseResources() override;
-    void itemChange(ItemChange change, const ItemChangeData &value) override;
 
 private:
     void initOurRhi();
     void initEngine();
-    QSize computeDisplaySize(int w, int h);
 
 public slots:
     void onFrameTick();
