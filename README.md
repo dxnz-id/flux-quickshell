@@ -50,21 +50,28 @@ Full instructions: [docs/build.md](docs/build.md)
 
 ---
 
+## Backstory
+
+I've always been fascinated by the macOS Drift screensaver — the way colors
+drift and bloom across the screen like ink in water. [sandydoo/flux](https://github.com/sandydoo/flux)
+captured that magic beautifully for the web. This is my take on it: a native
+screensaver for Hyprland lockscreens, built with C++ and OpenGL, running
+at 60 FPS with no browser overhead.
+
 ## Features
 
-- **Real-time Navier-Stokes fluid simulation** — 29-pass pipeline running
-  on your GPU at 60 FPS
-- **MacCormack advection** — high-accuracy fluid transport (forward +
-  reverse + correction pass)
-- **Flow lines** — spring-dynamics particle system that follows the fluid,
-  creating organic animated strokes
-- **6 color presets** — Original, 3 ColorWheel palettes, 2 ImageTexture variants
-- **13 configurable parameters** — tune viscosity, speed, zoom, line
-  thickness, and more from QML
-- **5 debug views** — inspect velocity, pressure, noise, divergence, or
-  the raw fluid field
+- **Smooth, flowing simulation** — ink-like patterns that drift, bloom, and
+  evolve endlessly at 60 FPS
+- **Animated flow lines** — organic strokes that follow the fluid, creating
+  mesmerizing motion trails
+- **6 hand-crafted color schemes** — Original, Plasma, Poolside, Freedom,
+  Silver, and Rainbow
+- **Fully customizable** — tweak speed, viscosity, zoom, line thickness, and
+  more from QML
 - **Multi-monitor** — each screen runs its own independent simulation
-- **Efficient** — separate GPU context, runs only when `running: true`
+- **5 debug views** — peek under the hood at velocity, pressure, noise,
+  or divergence fields
+- **Lightweight** — separate GPU context, only runs when visible
 
 ## Requirements
 
