@@ -91,6 +91,10 @@ Full instructions: [docs/build.md](docs/build.md)
 - [outfoxxed/quickshell](https://github.com/outfoxxed/quickshell) — The
   shell framework this plugin is built for.
 
+## Support
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Q5Q81BGQ2C)
+
 ## License
 
 GPL-3.0
