@@ -93,7 +93,9 @@ Full instructions: [docs/build.md](docs/build.md)
 
 ## Support
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Q5Q81BGQ2C)
+<a href="https://www.ko-fi.com/dxnzid">
+<img src="https://cdn.ko-fi.com/cdn/kofi3.png?v=3" width="160" alt="ko-fi" />
+</a>
 
 ## License
 
