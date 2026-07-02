@@ -372,18 +372,10 @@ Detail matematika dan parameter default harus didokumentasikan di
 - [x] **QTimer → QML Timer** — `onFrameTick()` pindah ke public slots, C++ QTimer dihapus. FluxBackground, test_fluid, shell.qml pake Timer 16ms di QML.
 - [x] **Opaque black display clear color** — `QColor(0,0,0,0)` → `QColor(0,0,0,255)` di display render pass, mencegah window background tembus.
 - [x] **QSB search path fix** — `FluxShaders::shaderPath()` parse `QML2_IMPORT_PATH` env var untuk quickshell compatibility.
-
-### In Progress
-- Binary search diagnostic via `diagStep` Q_PROPERTY (currently STEP 1):
-  - Step 1: constructor only (no GL, no QRhi, no engine, no sim)
-  - Step 2: GL context creation (makeCurrent + doneCurrent, no QRhi)
-  - Step 3: QRhi creation (context + QRhi, no engine)
-  - Step 4: Engine init + display node (QSGImageNode with fallback dark blue)
-  - Step 5: Full simulation (all features)
-  - Protocol: change `diagStep: 1` in LockSurface.qml → restart qs → test unlock for each step
+- [x] **diagStep default 5** — `m_diagStep` default `1` → `5` di `FluxItem.h:130`. QML tidak perlu lagi explicit `diagStep: 5`.
+- [x] **Integrasi dots-hyprfork** — `feat/flux-quickshell-screensaver` branch: LockSurface.qml full state machine, DisplaysConfig.qml settings UI, Config.qml bridge, hypridle lockIdle IPC, env.lua QML2_IMPORT_PATH, install script.
 
 ### Belum Dimulai
-- [ ] Lock state machine (Flux mode vs Normal mode for disable toggle)
 
 ### Known Issues
 

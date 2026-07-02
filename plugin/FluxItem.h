@@ -127,7 +127,7 @@ private:
     // Resize tracking
     int m_lastItemW = 0, m_lastItemH = 0;
 
-    int m_diagStep = 1;
+    int m_diagStep = 5;
     bool m_initQueued = false;
     bool m_engineInitQueued = false;
 };
